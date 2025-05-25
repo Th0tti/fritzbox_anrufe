@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import functools
 from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any
@@ -68,24 +67,25 @@ class FritzBoxAnrufeConfigFlow(ConfigFlow, domain=DOMAIN):
                 step_id="user", data_schema=DATA_SCHEMA_USER, errors={}
             )
 
+        # Werte speichern
         self._host = user_input[CONF_HOST]
         self._port = user_input[CONF_PORT]
         self._username = user_input[CONF_USERNAME]
         self._password = user_input[CONF_PASSWORD]
 
         try:
-            # FritzConnection und erster Call im Thread-Pool vermeiden Blocking im Event-Loop
+            # Instanziierung im Executor
             fc: FritzConnection = await self.hass.async_add_executor_job(
-                functools.partial(
-                    FritzConnection,
+                lambda: FritzConnection(
                     address=self._host,
                     port=self._port,
                     user=self._username,
                     password=self._password,
                 )
             )
+            # Ersten API-Call (Telefonbücher) im Executor
             self._phonebooks = await self.hass.async_add_executor_job(
-                functools.partial(fc.call_action, "X_AVM-DE_GetPhonebookList")
+                lambda: fc.call_action("X_AVM-DE_GetPhonebookList")
             )
         except (FritzSecurityError, FritzConnectionException, RequestsConnectionError):
             return self.async_show_form(
@@ -97,12 +97,13 @@ class FritzBoxAnrufeConfigFlow(ConfigFlow, domain=DOMAIN):
         if not self._phonebooks:
             return self.async_abort(reason=ConnectResult.NO_DEVICES_FOUND.value)
 
+        # Weiter zu Schritt 2
         return await self.async_step_phonebook()
 
     async def async_step_phonebook(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Schritt 2: Auswahl des gewünschten Telefonbuchs."""
+        """Schritt 2: Auswahl des Telefonbuchs."""
         if self._phonebook_names is None:
             self._phonebook_names = {
                 pb["NewPhonebookName"]: int(pb["NewPhonebookID"])
@@ -165,9 +166,7 @@ class FritzBoxAnrufeOptionsFlowHandler(OptionsFlow):
             {
                 vol.Optional(
                     CONF_PREFIXES,
-                    description={
-                        "suggested_value": self.config_entry.options.get(CONF_PREFIXES)
-                    },
+                    description={"suggested_value": self.config_entry.options.get(CONF_PREFIXES)},
                 ): str
             }
         )
