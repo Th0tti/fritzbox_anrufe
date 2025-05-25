@@ -1,7 +1,10 @@
+# custom_components/fritzbox_anrufe/config_flow.py
+
 """Config flow for fritzbox_anrufe."""
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any
@@ -11,12 +14,7 @@ from fritzconnection import FritzConnection
 from fritzconnection.core.exceptions import FritzConnectionException, FritzSecurityError
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
-from homeassistant.config_entries import (
-    ConfigFlow,
-    ConfigEntry,
-    ConfigFlowResult,
-    OptionsFlow,
-)
+from homeassistant.config_entries import ConfigFlow, ConfigEntry, ConfigFlowResult, OptionsFlow
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_USERNAME, CONF_PASSWORD
 from homeassistant.core import callback
 
@@ -25,14 +23,12 @@ from .const import (
     DEFAULT_HOST,
     DEFAULT_PORT,
     DEFAULT_USERNAME,
-    DEFAULT_PHONEBOOK,
     CONF_PHONEBOOK,
     CONF_PHONEBOOK_NAME,
     CONF_PREFIXES,
 )
 from .base import FritzBoxPhonebook
 
-# Schema für den ersten Schritt (Host/Port/Benutzer/Passwort)
 DATA_SCHEMA_USER = vol.Schema(
     {
         vol.Required(CONF_HOST, default=DEFAULT_HOST): str,
@@ -56,7 +52,6 @@ class FritzBoxAnrufeConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     def __init__(self) -> None:
-        """Initialize flow."""
         self._host: str | None = None
         self._port: int | None = None
         self._username: str | None = None
@@ -73,25 +68,24 @@ class FritzBoxAnrufeConfigFlow(ConfigFlow, domain=DOMAIN):
                 step_id="user", data_schema=DATA_SCHEMA_USER, errors={}
             )
 
-        # Eingaben merken
         self._host = user_input[CONF_HOST]
         self._port = user_input[CONF_PORT]
         self._username = user_input[CONF_USERNAME]
         self._password = user_input[CONF_PASSWORD]
 
-        # Instanziierung und API-Aufruf im Executor
         try:
-            # FritzConnection erzeugen (blockierend)
+            # FritzConnection und erster Call im Thread-Pool vermeiden Blocking im Event-Loop
             fc: FritzConnection = await self.hass.async_add_executor_job(
-                FritzConnection,
-                self._host,
-                self._port,
-                self._username,
-                self._password,
+                functools.partial(
+                    FritzConnection,
+                    address=self._host,
+                    port=self._port,
+                    user=self._username,
+                    password=self._password,
+                )
             )
-            # Telefonbücher auslesen (blockierend)
             self._phonebooks = await self.hass.async_add_executor_job(
-                fc.call_action, "X_AVM-DE_GetPhonebookList"
+                functools.partial(fc.call_action, "X_AVM-DE_GetPhonebookList")
             )
         except (FritzSecurityError, FritzConnectionException, RequestsConnectionError):
             return self.async_show_form(
@@ -103,14 +97,12 @@ class FritzBoxAnrufeConfigFlow(ConfigFlow, domain=DOMAIN):
         if not self._phonebooks:
             return self.async_abort(reason=ConnectResult.NO_DEVICES_FOUND.value)
 
-        # Weiter zum nächsten Schritt
         return await self.async_step_phonebook()
 
     async def async_step_phonebook(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Schritt 2: Auswahl des gewünschten Telefonbuchs."""
-        # Mapping Name → ID bauen
         if self._phonebook_names is None:
             self._phonebook_names = {
                 pb["NewPhonebookName"]: int(pb["NewPhonebookID"])
@@ -126,15 +118,12 @@ class FritzBoxAnrufeConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors={},
             )
 
-        # Gewähltes Telefonbuch übernehmen
         name = user_input[CONF_PHONEBOOK_NAME]
         pb_id = self._phonebook_names[name]
 
-        # Eindeutigkeit sicherstellen
         await self.async_set_unique_id(f"{self._host}-{pb_id}")
         self._abort_if_unique_id_configured()
 
-        # Entry erstellen
         return self.async_create_entry(
             title=name,
             data={
@@ -157,17 +146,14 @@ class FritzBoxAnrufeOptionsFlowHandler(OptionsFlow):
     """Handle the options (prefix list)."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
-        """Initialize options flow."""
         self.config_entry = config_entry
 
     @classmethod
     def _are_prefixes_valid(cls, prefixes: str | None) -> bool:
-        """Prüfen, ob die Präfix-String gültig ist."""
         return bool(prefixes.strip()) if prefixes else prefixes is None
 
     @classmethod
     def _get_list_of_prefixes(cls, prefixes: str | None) -> list[str] | None:
-        """In Liste von Strings umwandeln."""
         if prefixes is None:
             return None
         return [p.strip() for p in prefixes.split(",") if p.strip()]
@@ -175,7 +161,6 @@ class FritzBoxAnrufeOptionsFlowHandler(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Präfixe abfragen."""
         schema = vol.Schema(
             {
                 vol.Optional(
@@ -197,5 +182,6 @@ class FritzBoxAnrufeOptionsFlowHandler(OptionsFlow):
             )
 
         return self.async_create_entry(
-            title="", data={CONF_PREFIXES: self._get_list_of_prefixes(prefixes)}
+            title="",
+            data={CONF_PREFIXES: self._get_list_of_prefixes(prefixes)},
         )
