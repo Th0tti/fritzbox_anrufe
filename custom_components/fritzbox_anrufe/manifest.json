@@ -1,9 +1,11 @@
 {
   "domain": "fritzbox_anrufe",
   "name": "AVM FRITZ!Box Anrufe",
-  "codeowners": ["@Th0tti"],
-  "config_flow": true,
+  "version": "1.0.0",                               
   "documentation": "https://github.com/Th0tti/fritzbox_anrufe",
+  "issue_tracker": "https://github.com/Th0tti/fritzbox_anrufe/issues",
+  "codeowners": ["@Th0tti"],                         
+  "config_flow": true,
   "integration_type": "device",
   "iot_class": "local_polling",
   "loggers": ["fritzconnection"],
