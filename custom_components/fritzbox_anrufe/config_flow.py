@@ -4,30 +4,35 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from enum import StrEnum
-from typing import Any, cast
+from typing import Any
 
 import voluptuous as vol
 from fritzconnection import FritzConnection
 from fritzconnection.core.exceptions import FritzConnectionException, FritzSecurityError
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
-from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNAME
+from homeassistant.config_entries import (
+    ConfigFlow,
+    ConfigEntry,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.const import CONF_HOST, CONF_PORT, CONF_USERNAME, CONF_PASSWORD
 from homeassistant.core import callback
 
-from .base import FritzBoxPhonebook
 from .const import (
+    DOMAIN,
+    DEFAULT_HOST,
+    DEFAULT_PORT,
+    DEFAULT_USERNAME,
+    DEFAULT_PHONEBOOK,
     CONF_PHONEBOOK,
     CONF_PHONEBOOK_NAME,
     CONF_PREFIXES,
-    DEFAULT_HOST,
-    DEFAULT_PHONEBOOK,
-    DEFAULT_PORT,
-    DEFAULT_USERNAME,
-    DOMAIN,
-    FRITZ_ATTR_NAME,
 )
+from .base import FritzBoxPhonebook
 
+# Schema für den ersten Schritt (Host/Port/Benutzer/Passwort)
 DATA_SCHEMA_USER = vol.Schema(
     {
         vol.Required(CONF_HOST, default=DEFAULT_HOST): str,
@@ -39,9 +44,8 @@ DATA_SCHEMA_USER = vol.Schema(
 
 
 class ConnectResult(StrEnum):
-    """Result of trying to connect to the Fritz!Box."""
+    """Mögliche Ergebnisse beim Verbindungsversuch."""
     INVALID_AUTH = "invalid_auth"
-    INSUFFICIENT_PERMISSIONS = "insufficient_permissions"
     NO_DEVICES_FOUND = "no_devices_found"
     SUCCESS = "success"
 
@@ -50,34 +54,43 @@ class FritzBoxAnrufeConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for fritzbox_anrufe."""
 
     VERSION = 1
-    _phonebook_names: dict[str, int] | None = None
+
+    def __init__(self) -> None:
+        """Initialize flow."""
+        self._host: str | None = None
+        self._port: int | None = None
+        self._username: str | None = None
+        self._password: str | None = None
+        self._phonebooks: list[dict[str, Any]] | None = None
+        self._phonebook_names: dict[str, int] | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Step 1: Eingabe von Host/Port/Benutzer/Passwort."""
+        """Schritt 1: FRITZ!Box-Zugangsdaten abfragen."""
         if user_input is None:
             return self.async_show_form(
-                step_id="user",
-                data_schema=DATA_SCHEMA_USER,
-                errors={},
+                step_id="user", data_schema=DATA_SCHEMA_USER, errors={}
             )
 
-        # Werte merken
+        # Eingaben merken
         self._host = user_input[CONF_HOST]
         self._port = user_input[CONF_PORT]
         self._username = user_input[CONF_USERNAME]
         self._password = user_input[CONF_PASSWORD]
 
-        # **WICHTIG**: Instanziierung und erster Call im Executor, damit kein Blocking im Event-Loop passiert
+        # Instanziierung und API-Aufruf im Executor
         try:
-            # FritzConnection erstellen
+            # FritzConnection erzeugen (blockierend)
             fc: FritzConnection = await self.hass.async_add_executor_job(
                 FritzConnection,
-                {"address": self._host, "port": self._port, "user": self._username, "password": self._password},
+                self._host,
+                self._port,
+                self._username,
+                self._password,
             )
-            # Phonebook-Liste abrufen
-            phonebooks = await self.hass.async_add_executor_job(
+            # Telefonbücher auslesen (blockierend)
+            self._phonebooks = await self.hass.async_add_executor_job(
                 fc.call_action, "X_AVM-DE_GetPhonebookList"
             )
         except (FritzSecurityError, FritzConnectionException, RequestsConnectionError):
@@ -87,21 +100,21 @@ class FritzBoxAnrufeConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors={"base": ConnectResult.INVALID_AUTH},
             )
 
-        if not phonebooks:
+        if not self._phonebooks:
             return self.async_abort(reason=ConnectResult.NO_DEVICES_FOUND.value)
 
-        # Liste für nächsten Schritt vorhalten
-        return await self.async_step_phonebook({"phonebooks": phonebooks})
+        # Weiter zum nächsten Schritt
+        return await self.async_step_phonebook()
 
     async def async_step_phonebook(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Step 2: Auswahl des Telefonbuchs."""
+        """Schritt 2: Auswahl des gewünschten Telefonbuchs."""
+        # Mapping Name → ID bauen
         if self._phonebook_names is None:
-            # Mapping Name -> ID
             self._phonebook_names = {
                 pb["NewPhonebookName"]: int(pb["NewPhonebookID"])
-                for pb in user_input["phonebooks"]
+                for pb in self._phonebooks  # type: ignore[union-attr]
             }
 
         if user_input is None or CONF_PHONEBOOK_NAME not in user_input:
@@ -113,26 +126,76 @@ class FritzBoxAnrufeConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors={},
             )
 
-        # Ausgewähltes Telefonbuch übernehmen
-        self._phonebook_name = user_input[CONF_PHONEBOOK_NAME]
-        self._phonebook_id = self._phonebook_names[self._phonebook_name]
+        # Gewähltes Telefonbuch übernehmen
+        name = user_input[CONF_PHONEBOOK_NAME]
+        pb_id = self._phonebook_names[name]
 
-        await self.async_set_unique_id(f"{self._host}-{self._phonebook_id}")
+        # Eindeutigkeit sicherstellen
+        await self.async_set_unique_id(f"{self._host}-{pb_id}")
         self._abort_if_unique_id_configured()
 
+        # Entry erstellen
         return self.async_create_entry(
-            title=self._phonebook_name,
+            title=name,
             data={
                 CONF_HOST: self._host,
                 CONF_PORT: self._port,
                 CONF_USERNAME: self._username,
                 CONF_PASSWORD: self._password,
-                CONF_PHONEBOOK: self._phonebook_id,
+                CONF_PHONEBOOK: pb_id,
             },
         )
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> FritzBoxAnrufeOptionsFlowHandler:
-        """Handle options (Prefix-Konfiguration)."""
+        """Options-Flow für Präfixe."""
         return FritzBoxAnrufeOptionsFlowHandler()
+
+
+class FritzBoxAnrufeOptionsFlowHandler(OptionsFlow):
+    """Handle the options (prefix list)."""
+
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    @classmethod
+    def _are_prefixes_valid(cls, prefixes: str | None) -> bool:
+        """Prüfen, ob die Präfix-String gültig ist."""
+        return bool(prefixes.strip()) if prefixes else prefixes is None
+
+    @classmethod
+    def _get_list_of_prefixes(cls, prefixes: str | None) -> list[str] | None:
+        """In Liste von Strings umwandeln."""
+        if prefixes is None:
+            return None
+        return [p.strip() for p in prefixes.split(",") if p.strip()]
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Präfixe abfragen."""
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_PREFIXES,
+                    description={
+                        "suggested_value": self.config_entry.options.get(CONF_PREFIXES)
+                    },
+                ): str
+            }
+        )
+
+        if user_input is None:
+            return self.async_show_form(step_id="init", data_schema=schema, errors={})
+
+        prefixes = user_input.get(CONF_PREFIXES)
+        if not self._are_prefixes_valid(prefixes):
+            return self.async_show_form(
+                step_id="init", data_schema=schema, errors={"base": "malformed_prefixes"}
+            )
+
+        return self.async_create_entry(
+            title="", data={CONF_PREFIXES: self._get_list_of_prefixes(prefixes)}
+        )
