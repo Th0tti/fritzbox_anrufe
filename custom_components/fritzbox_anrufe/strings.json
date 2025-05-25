@@ -1,0 +1,63 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "data": {
+          "host": "[%key:common::config_flow::data::host%]",
+          "port": "[%key:common::config_flow::data::port%]",
+          "username": "[%key:common::config_flow::data::username%]",
+          "password": "[%key:common::config_flow::data::password%]"
+        },
+        "data_description": {
+          "host": "The hostname or IP address of your FRITZ!Box router."
+        }
+      },
+      "phonebook": {
+        "data": {
+          "phonebook": "[%key:const::phonebook%]",
+          "prefixes": "[%key:const::prefixes%]"
+        },
+        "data_description": {
+          "phonebook": "Which FRITZ!Box phonebook to use.",
+          "prefixes": "Comma-separated list of number prefixes to match local contacts."
+        },
+        "errors": {
+          "base": {
+            "invalid_auth": "Invalid credentials",
+            "no_devices_found": "No phonebooks found",
+            "malformed_prefixes": "Prefixes must be comma-separated numbers"
+          }
+        }
+      },
+      "prefixes": {
+        "data": {
+          "prefixes": "[%key:const::prefixes%]"
+        },
+        "errors": {
+          "base": {
+            "malformed_prefixes": "Prefixes must be comma-separated numbers"
+          }
+        }
+      }
+    }
+  },
+  "entity": {
+    "state": {
+      "ringing": { "name": "Ringing" },
+      "dialing": { "name": "Dialing" },
+      "talking": { "name": "Talking" },
+      "idle": { "name": "Idle" }
+    },
+    "attributes": {
+      "from_name": { "name": "Caller name" },
+      "to_name": { "name": "Called name" },
+      "with": { "name": "With number" },
+      "accepted": { "name": "Accepted" },
+      "with_name": { "name": "With name" },
+      "duration": { "name": "Duration" },
+      "closed": { "name": "Closed" },
+      "vip": { "name": "Important" }
+    }
+  }
+}
