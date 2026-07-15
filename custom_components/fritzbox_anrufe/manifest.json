@@ -1,13 +1,11 @@
 {
-  "domain": "fritzbox_anrufe",
-  "name": "AVM FRITZ!Box Anrufe",
-  "version": "1.0.0",                               
-  "documentation": "https://github.com/Th0tti/fritzbox_anrufe",
-  "issue_tracker": "https://github.com/Th0tti/fritzbox_anrufe/issues",
-  "codeowners": ["@Th0tti"],                         
+  "domain": "fritzbox_callmonitor",
+  "name": "FRITZ!Box Call Monitor",
+  "codeowners": [],
   "config_flow": true,
+  "documentation": "https://www.home-assistant.io/integrations/fritzbox_callmonitor",
   "integration_type": "device",
   "iot_class": "local_polling",
   "loggers": ["fritzconnection"],
-  "requirements": ["fritzconnection[qr]==1.14.0"]
+  "requirements": ["fritzconnection[qr]==1.15.1"]
 }
