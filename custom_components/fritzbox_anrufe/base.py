@@ -1,6 +1,4 @@
-"""Base class for fritzbox_anrufe entities."""
-
-from __future__ import annotations
+"""Base class for fritzbox_callmonitor entities."""
 
 from contextlib import suppress
 from dataclasses import dataclass
@@ -12,51 +10,88 @@ from fritzconnection.lib.fritzphonebook import FritzPhonebook
 
 from homeassistant.util import Throttle
 
-from .const import CONF_PHONEBOOK, CONF_PREFIXES, DOMAIN
+from .const import REGEX_NUMBER, UNKNOWN_NAME
 
 _LOGGER = logging.getLogger(__name__)
 
-THROTTLE_INTERVAL = timedelta(seconds=30)
+# Return cached results if phonebook was downloaded less then this time ago.
+MIN_TIME_PHONEBOOK_UPDATE = timedelta(hours=6)
+
 
 @dataclass
 class Contact:
-    """Dataclass to hold a contact."""
+    """Store details for one phonebook contact."""
+
     name: str
-    number: str
-    vip: bool = False
+    numbers: list[str]
+    vip: bool
+
+    def __init__(
+        self, name: str, numbers: list[str] | None = None, category: str | None = None
+    ) -> None:
+        """Initialize the class."""
+        self.name = name
+        self.numbers = [re.sub(REGEX_NUMBER, "", nr) for nr in numbers or ()]
+        self.vip = category == "1"
+
+
+unknown_contact = Contact(UNKNOWN_NAME)
+
 
 class FritzBoxPhonebook:
-    """Connect to Fritz!Box and fetch the phonebook."""
+    """Connects to a FritzBox router and downloads its phone book."""
 
-    def __init__(self, hass, data, options, entry_id):
-        self.hass = hass
-        self.host = data[CONF_HOST]
-        self.port = data[CONF_PORT]
-        self.username = data[CONF_USERNAME]
-        self.password = data[CONF_PASSWORD]
-        self.phonebook_id = data[CONF_PHONEBOOK]
-        self.prefixes = options.get(CONF_PREFIXES)
-        self._entry_id = entry_id
-        self._phonebook = FritzPhonebook(address=self.host, port=self.port, user=self.username, password=self.password)
-        self.number_dict: dict[str, Contact] = {}
-        self._last_update = None
+    fph: FritzPhonebook
+    phonebook_dict: dict[str, list[str]]
+    contacts: list[Contact]
+    number_dict: dict[str, Contact]
 
-    @Throttle(THROTTLE_INTERVAL)
-    async def async_setup(self) -> None:
-        """Fetch phonebook and build lookup dict."""
-        try:
-            numbers = await self.hass.async_add_executor_job(
-                self._phonebook.call_action,
-                "X_AVM-DE_GetPhonebook",
-                {"NewPhonebookID": self.phonebook_id},
-            )
-            # … parse XML, fülle self.number_dict …
-        except Exception as err:
-            _LOGGER.error("Fehler beim Laden der Telefonbuchdaten: %s", err)
+    def __init__(
+        self,
+        host: str,
+        username: str,
+        password: str,
+        phonebook_id: int | None = None,
+        prefixes: list[str] | None = None,
+    ) -> None:
+        """Initialize the class."""
+        self.host = host
+        self.username = username
+        self.password = password
+        self.phonebook_id = phonebook_id
+        self.prefixes = prefixes
 
-    def number_to_contact(self, number: str) -> Contact:
-        """Map a raw number to a Contact, anhand Prefixes oder geladener Dict."""
-        unknown_contact = Contact(name=UNKNOWN_NAME, number=number)
+    def init_phonebook(self) -> None:
+        """Connect to the FRITZ!Box and check if phonebook_id is valid."""
+        self.fph = FritzPhonebook(
+            address=self.host,
+            user=self.username,
+            password=self.password,
+        )
+        self.update_phonebook()
+
+    @Throttle(MIN_TIME_PHONEBOOK_UPDATE)
+    def update_phonebook(self) -> None:
+        """Update the phone book dictionary."""
+        if self.phonebook_id is None:
+            return
+
+        self.fph.get_all_name_numbers(self.phonebook_id)
+        self.contacts = [
+            Contact(c.name, c.numbers, getattr(c, "category", None))
+            for c in self.fph.phonebook.contacts
+        ]
+        self.number_dict = {nr: c for c in self.contacts for nr in c.numbers}
+        _LOGGER.debug("Fritz!Box phone book successfully updated")
+
+    def get_phonebook_ids(self) -> list[int]:
+        """Return list of phonebook ids."""
+        return self.fph.phonebook_ids  # type: ignore[no-any-return]
+
+    def get_contact(self, number: str) -> Contact:
+        """Return a contact for a given phone number."""
+        number = re.sub(REGEX_NUMBER, "", str(number))
+
         with suppress(KeyError):
             return self.number_dict[number]
 
