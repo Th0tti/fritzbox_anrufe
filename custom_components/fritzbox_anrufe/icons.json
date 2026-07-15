@@ -1,11 +1,11 @@
 {
   "entity": {
     "sensor": {
-      "fritzbox_anrufe": {
+      "fritzbox_callmonitor": {
         "default": "mdi:phone",
         "state": {
-          "ringing": "mdi:phone-incoming",
           "dialing": "mdi:phone-outgoing",
+          "ringing": "mdi:phone-incoming",
           "talking": "mdi:phone-in-talk"
         }
       }
