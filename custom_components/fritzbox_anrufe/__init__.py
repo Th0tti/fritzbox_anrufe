@@ -1,4 +1,4 @@
-"""The fritzbox_callmonitor integration."""
+"""The fritzbox_anrufe integration."""
 
 import logging
 
@@ -21,7 +21,7 @@ type FritzBoxCallMonitorConfigEntry = ConfigEntry[FritzBoxPhonebook]
 async def async_setup_entry(
     hass: HomeAssistant, config_entry: FritzBoxCallMonitorConfigEntry
 ) -> bool:
-    """Set up the fritzbox_callmonitor platforms."""
+    """Set up the fritzbox_anrufe platforms."""
     fritzbox_phonebook = FritzBoxPhonebook(
         host=config_entry.data[CONF_HOST],
         username=config_entry.data[CONF_USERNAME],
@@ -56,5 +56,5 @@ async def async_setup_entry(
 async def async_unload_entry(
     hass: HomeAssistant, config_entry: FritzBoxCallMonitorConfigEntry
 ) -> bool:
-    """Unloading the fritzbox_callmonitor platforms."""
+    """Unloading the fritzbox_anrufe platforms."""
     return await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)

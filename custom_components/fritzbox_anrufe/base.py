@@ -1,4 +1,4 @@
-"""Base class for fritzbox_callmonitor entities."""
+"""Base class for fritzbox_anrufe entities."""
 
 from contextlib import suppress
 from dataclasses import dataclass

@@ -34,7 +34,7 @@ DEFAULT_USERNAME = "admin"
 DEFAULT_PHONEBOOK = 0
 DEFAULT_NAME = "Phone"
 
-DOMAIN: Final = "fritzbox_callmonitor"
+DOMAIN: Final = "fritzbox_anrufe"
 MANUFACTURER: Final = "FRITZ!"
 
 PLATFORMS = [Platform.SENSOR]

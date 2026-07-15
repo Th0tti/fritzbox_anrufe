@@ -7,7 +7,7 @@
       "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
     },
     "error": {
-      "insufficient_permissions": "[%key:component::fritzbox_callmonitor::config::abort::insufficient_permissions%]",
+      "insufficient_permissions": "[%key:component::fritzbox_anrufe::config::abort::insufficient_permissions%]",
       "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]"
     },
     "flow_title": "{name}",
@@ -38,7 +38,7 @@
   },
   "entity": {
     "sensor": {
-      "fritzbox_callmonitor": {
+      "fritzbox_anrufe": {
         "name": "Call monitor {phonebook_name}",
         "state": {
           "dialing": "Dialing",

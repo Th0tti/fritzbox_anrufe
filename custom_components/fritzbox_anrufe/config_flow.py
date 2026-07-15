@@ -1,4 +1,4 @@
-"""Config flow for fritzbox_callmonitor."""
+"""Config flow for fritzbox_anrufe."""
 
 from collections.abc import Mapping
 from enum import StrEnum
@@ -53,7 +53,7 @@ class ConnectResult(StrEnum):
 
 
 class FritzBoxCallMonitorConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a fritzbox_callmonitor config flow."""
+    """Handle a fritzbox_anrufe config flow."""
 
     VERSION = 1
 
@@ -264,7 +264,7 @@ class FritzBoxCallMonitorConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class FritzBoxCallMonitorOptionsFlowHandler(OptionsFlowWithReload):
-    """Handle a fritzbox_callmonitor options flow."""
+    """Handle a fritzbox_anrufe options flow."""
 
     @classmethod
     def _are_prefixes_valid(cls, prefixes: str | None) -> bool:

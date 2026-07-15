@@ -1,2 +1,2 @@
 # fritzbox_anrufe
-Eine Home Assistant Integration 
+Eine Home Assistant Integration
