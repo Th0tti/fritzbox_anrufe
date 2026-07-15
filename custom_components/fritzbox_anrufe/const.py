@@ -18,17 +18,12 @@ class FritzState(StrEnum):
 ATTR_PREFIXES = "prefixes"
 
 FRITZ_ATTR_NAME = "name"
-FRITZ_ATTR_VIP = "vip"
-FRITZ_ATTR_NUMBER = "number"
-FRITZ_ATTR_DEVICE = "device"
-FRITZ_ATTR_ACCEPTED = "accepted"
-FRITZ_ATTR_CLOSED = "closed"
-FRITZ_ATTR_DURATION = "duration"
+FRITZ_ATTR_SERIAL_NUMBER = "Serial"
 
-CONF_HOST = "host"
-CONF_PORT = "port"
-CONF_USERNAME = "username"
-CONF_PASSWORD = "password"
+UNKNOWN_NAME = "unknown"
+SERIAL_NUMBER = "serial_number"
+REGEX_NUMBER = r"[^\d\+]"
+
 CONF_PHONEBOOK = "phonebook"
 CONF_PHONEBOOK_NAME = "phonebook_name"
 CONF_PREFIXES = "prefixes"
@@ -39,7 +34,7 @@ DEFAULT_USERNAME = "admin"
 DEFAULT_PHONEBOOK = 0
 DEFAULT_NAME = "Phone"
 
-DOMAIN: Final = "fritzbox_anrufe"
-MANUFACTURER: Final = "AVM"
+DOMAIN: Final = "fritzbox_callmonitor"
+MANUFACTURER: Final = "FRITZ!"
 
 PLATFORMS = [Platform.SENSOR]
