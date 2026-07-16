@@ -1,7 +1,10 @@
 """Config flow for fritzbox_anrufe."""
 
+from __future__ import annotations
+
 from collections.abc import Mapping
 from enum import StrEnum
+import logging
 from typing import Any, cast, override
 
 from fritzconnection import FritzConnection
@@ -17,11 +20,20 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNAME
 from homeassistant.core import callback
+from homeassistant.helpers import selector
 
 from .base import FritzBoxPhonebook
 from .const import (
+    CALL_LOG_LIMIT_COUNT,
+    CALL_LOG_LIMIT_DAYS,
+    CONF_CALL_LOG_COUNT,
+    CONF_CALL_LOG_DAYS,
+    CONF_CALL_LOG_LIMIT_TYPE,
     CONF_PHONEBOOK,
     CONF_PREFIXES,
+    DEFAULT_CALL_LOG_COUNT,
+    DEFAULT_CALL_LOG_DAYS,
+    DEFAULT_CALL_LOG_LIMIT_TYPE,
     DEFAULT_HOST,
     DEFAULT_PHONEBOOK,
     DEFAULT_PORT,
@@ -29,8 +41,14 @@ from .const import (
     DOMAIN,
     FRITZ_ATTR_NAME,
     FRITZ_ATTR_SERIAL_NUMBER,
+    MAX_CALL_LOG_COUNT,
+    MAX_CALL_LOG_DAYS,
+    MIN_CALL_LOG_COUNT,
+    MIN_CALL_LOG_DAYS,
     SERIAL_NUMBER,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 DATA_SCHEMA_USER = vol.Schema(
     {
@@ -49,6 +67,7 @@ class ConnectResult(StrEnum):
     INSUFFICIENT_PERMISSIONS = "insufficient_permissions"
     MALFORMED_PREFIXES = "malformed_prefixes"
     NO_DEVIES_FOUND = "no_devices_found"
+    UNKNOWN = "unknown"
     SUCCESS = "success"
 
 
@@ -102,12 +121,22 @@ class FritzBoxCallMonitorConfigFlow(ConfigFlow, domain=DOMAIN):
                 address=self._host, user=self._username, password=self._password
             )
             info = fritz_connection.updatecheck
-        except RequestsConnectionError:
-            return ConnectResult.NO_DEVIES_FOUND
         except FritzSecurityError:
             return ConnectResult.INSUFFICIENT_PERMISSIONS
         except FritzConnectionException:
             return ConnectResult.INVALID_AUTH
+        except RequestsConnectionError:
+            # e.g. host unreachable / connection refused (TR-064 port closed).
+            return ConnectResult.NO_DEVIES_FOUND
+        except Exception:  # noqa: BLE001 - deliberately broad: never let an
+            # unexpected exception (timeout, HTTP error, malformed XML
+            # response, ...) surface to the user as an unhelpful "Unknown
+            # error occurred" without at least a traceback in the log.
+            _LOGGER.exception(
+                "Unerwarteter Fehler beim Verbindungsaufbau zur FRITZ!Box unter %s",
+                self._host,
+            )
+            return ConnectResult.UNKNOWN
 
         self._serial_number = info[FRITZ_ATTR_SERIAL_NUMBER]
         return ConnectResult.SUCCESS
@@ -153,11 +182,13 @@ class FritzBoxCallMonitorConfigFlow(ConfigFlow, domain=DOMAIN):
 
         result = await self.hass.async_add_executor_job(self._try_connect)
 
-        if result == ConnectResult.INVALID_AUTH:
+        if result in (ConnectResult.INVALID_AUTH, ConnectResult.UNKNOWN):
+            # Recoverable: re-show the form instead of aborting the whole
+            # flow, so the user can just correct the input and retry.
             return self.async_show_form(
                 step_id="user",
                 data_schema=DATA_SCHEMA_USER,
-                errors={"base": ConnectResult.INVALID_AUTH},
+                errors={"base": result},
             )
 
         if result != ConnectResult.SUCCESS:
@@ -278,16 +309,45 @@ class FritzBoxCallMonitorOptionsFlowHandler(OptionsFlowWithReload):
             return None
         return [prefix.strip() for prefix in prefixes.split(",")]
 
-    def _get_option_schema_prefixes(self) -> vol.Schema:
-        """Get option schema for entering prefixes."""
+    def _get_option_schema(self) -> vol.Schema:
+        """Get the option schema for prefixes and the call-list history depth.
+
+        Both a max. number of entries (``CONF_CALL_LOG_COUNT``) and a number
+        of days (``CONF_CALL_LOG_DAYS``) can be configured at the same time;
+        ``CONF_CALL_LOG_LIMIT_TYPE`` decides which of the two is actually
+        applied by the fritzbox_anrufe_eingehend/ausgehend/verpasst sensors.
+        """
+        options = self.config_entry.options
         return vol.Schema(
             {
                 vol.Optional(
                     CONF_PREFIXES,
-                    description={
-                        "suggested_value": self.config_entry.options.get(CONF_PREFIXES)
-                    },
-                ): str
+                    description={"suggested_value": options.get(CONF_PREFIXES)},
+                ): str,
+                vol.Optional(
+                    CONF_CALL_LOG_LIMIT_TYPE,
+                    default=options.get(
+                        CONF_CALL_LOG_LIMIT_TYPE, DEFAULT_CALL_LOG_LIMIT_TYPE
+                    ),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[CALL_LOG_LIMIT_COUNT, CALL_LOG_LIMIT_DAYS],
+                        translation_key=CONF_CALL_LOG_LIMIT_TYPE,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Optional(
+                    CONF_CALL_LOG_COUNT,
+                    default=options.get(CONF_CALL_LOG_COUNT, DEFAULT_CALL_LOG_COUNT),
+                ): vol.All(
+                    vol.Coerce(int), vol.Range(min=MIN_CALL_LOG_COUNT, max=MAX_CALL_LOG_COUNT)
+                ),
+                vol.Optional(
+                    CONF_CALL_LOG_DAYS,
+                    default=options.get(CONF_CALL_LOG_DAYS, DEFAULT_CALL_LOG_DAYS),
+                ): vol.All(
+                    vol.Coerce(int), vol.Range(min=MIN_CALL_LOG_DAYS, max=MAX_CALL_LOG_DAYS)
+                ),
             }
         )
 
@@ -296,12 +356,12 @@ class FritzBoxCallMonitorOptionsFlowHandler(OptionsFlowWithReload):
     ) -> ConfigFlowResult:
         """Manage the options."""
 
-        option_schema_prefixes = self._get_option_schema_prefixes()
+        option_schema = self._get_option_schema()
 
         if user_input is None:
             return self.async_show_form(
                 step_id="init",
-                data_schema=option_schema_prefixes,
+                data_schema=option_schema,
                 errors={},
             )
 
@@ -310,10 +370,16 @@ class FritzBoxCallMonitorOptionsFlowHandler(OptionsFlowWithReload):
         if not self._are_prefixes_valid(prefixes):
             return self.async_show_form(
                 step_id="init",
-                data_schema=option_schema_prefixes,
+                data_schema=option_schema,
                 errors={"base": ConnectResult.MALFORMED_PREFIXES},
             )
 
         return self.async_create_entry(
-            title="", data={CONF_PREFIXES: self._get_list_of_prefixes(prefixes)}
+            title="",
+            data={
+                CONF_PREFIXES: self._get_list_of_prefixes(prefixes),
+                CONF_CALL_LOG_LIMIT_TYPE: user_input[CONF_CALL_LOG_LIMIT_TYPE],
+                CONF_CALL_LOG_COUNT: user_input[CONF_CALL_LOG_COUNT],
+                CONF_CALL_LOG_DAYS: user_input[CONF_CALL_LOG_DAYS],
+            },
         )

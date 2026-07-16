@@ -1,8 +1,10 @@
 """The fritzbox_anrufe integration."""
 
+from dataclasses import dataclass
 import logging
 
 from fritzconnection.core.exceptions import FritzConnectionException, FritzSecurityError
+from fritzconnection.lib.fritzcall import FritzCall
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
 from homeassistant.config_entries import ConfigEntry
@@ -11,11 +13,24 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
 from .base import FritzBoxPhonebook
+from .call_log import FritzCallLogCoordinator
 from .const import CONF_PHONEBOOK, CONF_PREFIXES, PLATFORMS
 
 _LOGGER = logging.getLogger(__name__)
 
-type FritzBoxCallMonitorConfigEntry = ConfigEntry[FritzBoxPhonebook]
+
+@dataclass
+class FritzBoxRuntimeData:
+    """Runtime data shared between the live call-monitor sensor and the
+
+    call-list history sensors (fritzbox_anrufe_eingehend/ausgehend/verpasst).
+    """
+
+    phonebook: FritzBoxPhonebook
+    call_log_coordinator: FritzCallLogCoordinator
+
+
+type FritzBoxCallMonitorConfigEntry = ConfigEntry[FritzBoxRuntimeData]
 
 
 async def async_setup_entry(
@@ -47,7 +62,21 @@ async def async_setup_entry(
         _LOGGER.error("Unable to connect to FRITZ!Box call monitor: %s", ex)
         raise ConfigEntryNotReady from ex
 
-    config_entry.runtime_data = fritzbox_phonebook
+    # Reuse the already-authenticated TR-064 connection opened for the
+    # phonebook lookup instead of opening a second one just for the call list.
+    fritz_call = FritzCall(fc=fritzbox_phonebook.fph.fc)
+    call_log_coordinator = FritzCallLogCoordinator(hass, config_entry, fritz_call)
+    # Deliberately not using async_config_entry_first_refresh() here: a
+    # missing "Anrufliste" permission or disabled TR-064 on the FRITZ!Box
+    # account must not prevent the whole integration (incl. the working
+    # call-monitor sensor) from loading. The three history sensors simply
+    # stay "unavailable" until the coordinator can fetch data successfully.
+    await call_log_coordinator.async_refresh()
+
+    config_entry.runtime_data = FritzBoxRuntimeData(
+        phonebook=fritzbox_phonebook,
+        call_log_coordinator=call_log_coordinator,
+    )
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
 
     return True

@@ -1,0 +1,75 @@
+# Beispiel-Dashboard-Karte für fritzbox_anrufe
+# ================================================
+#
+# Zeigt eingehende, ausgehende und verpasste Anrufe in EINER Karte als
+# Tabelle an. Spalten werden ein-/ausgeblendet, indem man Einträge in der
+# "columns:"-Liste weiter unten hinzufügt oder entfernt (bzw. mit "#"
+# auskommentiert).
+#
+# Voraussetzung: Die Community-Karte "flex-table-card" muss über HACS
+# (Frontend -> Explore & Download Repositories -> "flex-table-card")
+# installiert sein. Repo: https://github.com/custom-cards/flex-table-card
+#
+# Passe die drei Entity-IDs unten an deine tatsächlichen Sensor-Namen an
+# (Einstellungen -> Geräte & Dienste -> Entitäten -> nach "Anrufe" suchen).
+# Falls du sie beim Einrichten nicht umbenannt hast, heißen sie
+# standardmäßig z.B. "sensor.<router_modell>_eingehende_anrufe_<telefonbuch>".
+
+type: vertical-stack
+cards:
+  # --- Live-Anzeige: erscheint nur, während gerade ein Gespräch läuft ---
+  - type: conditional
+    conditions:
+      - condition: state
+        entity: sensor.REPLACE_ME_call_monitor
+        state_not: idle
+    card:
+      type: entities
+      title: Aktueller Anruf
+      entities:
+        - entity: sensor.REPLACE_ME_call_monitor
+          name: Status
+        - type: attribute
+          entity: sensor.REPLACE_ME_call_monitor
+          attribute: from_name
+          name: Von
+        - type: attribute
+          entity: sensor.REPLACE_ME_call_monitor
+          attribute: from
+          name: Nummer
+
+  # --- Verlaufstabelle: eingehend + ausgehend + verpasst in einer Karte ---
+  - type: custom:flex-table-card
+    title: Anrufliste
+    entities:
+      - entity: sensor.REPLACE_ME_eingehende_anrufe
+        attribute: calls
+      - entity: sensor.REPLACE_ME_ausgehende_anrufe
+        attribute: calls
+      - entity: sensor.REPLACE_ME_verpasste_anrufe
+        attribute: calls
+    columns:
+      # Spalte weglassen/auskommentieren = ausblenden. Reihenfolge hier =
+      # Reihenfolge in der Tabelle.
+      - name: Typ
+        data: type
+        modify: >-
+          x === 'eingehend' ? '📥 Eingehend' : x === 'ausgehend' ? '📤 Ausgehend' : '❌ Verpasst'
+      - name: Datum
+        data: date
+        modify: "new Date(x).toLocaleString('de-DE')"
+      - name: Name / Rufnummer
+        data: name
+      - name: Nummer
+        data: number
+      - name: Eigene Rufnummer
+        data: own_number
+      - name: Gerät
+        data: device
+      - name: Dauer
+        data: duration
+      # - name: VIP
+      #   data: vip
+    sort_by: "date-"
+    css:
+      table+: "width: 100%;"

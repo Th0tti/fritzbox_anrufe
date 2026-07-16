@@ -8,6 +8,15 @@
           "ringing": "mdi:phone-incoming",
           "talking": "mdi:phone-in-talk"
         }
+      },
+      "fritzbox_anrufe_eingehend": {
+        "default": "mdi:phone-incoming"
+      },
+      "fritzbox_anrufe_ausgehend": {
+        "default": "mdi:phone-outgoing"
+      },
+      "fritzbox_anrufe_verpasst": {
+        "default": "mdi:phone-missed"
       }
     }
   }

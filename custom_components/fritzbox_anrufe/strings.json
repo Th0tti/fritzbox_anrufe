@@ -8,7 +8,8 @@
     },
     "error": {
       "insufficient_permissions": "[%key:component::fritzbox_anrufe::config::abort::insufficient_permissions%]",
-      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]"
+      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+      "unknown": "[%key:common::config_flow::error::unknown%]"
     },
     "flow_title": "{name}",
     "step": {
@@ -68,6 +69,32 @@
           "with": { "name": "With number" },
           "with_name": { "name": "With name" }
         }
+      },
+      "fritzbox_anrufe_eingehend": {
+        "name": "Eingehende Anrufe {phonebook_name}",
+        "state_attributes": {
+          "calls": { "name": "Anrufe" }
+        }
+      },
+      "fritzbox_anrufe_ausgehend": {
+        "name": "Ausgehende Anrufe {phonebook_name}",
+        "state_attributes": {
+          "calls": { "name": "Anrufe" }
+        }
+      },
+      "fritzbox_anrufe_verpasst": {
+        "name": "Verpasste Anrufe {phonebook_name}",
+        "state_attributes": {
+          "calls": { "name": "Anrufe" }
+        }
+      }
+    }
+  },
+  "selector": {
+    "call_log_limit_type": {
+      "options": {
+        "count": "Anzahl Anrufe",
+        "days": "Anzahl Tage"
       }
     }
   },
@@ -78,9 +105,17 @@
     "step": {
       "init": {
         "data": {
-          "prefixes": "Prefixes (comma-separated list)"
+          "prefixes": "Prefixes (comma-separated list)",
+          "call_log_limit_type": "Verlaufstiefe der Anruflisten-Sensoren",
+          "call_log_count": "Anzahl Anrufe (falls 'Anzahl Anrufe' gewählt)",
+          "call_log_days": "Anzahl Tage (falls 'Anzahl Tage' gewählt)"
         },
-        "title": "Configure prefixes"
+        "data_description": {
+          "call_log_limit_type": "Bestimmt, ob die Sensoren fritzbox_anrufe_eingehend/ausgehend/verpasst nach Anzahl oder nach Zeitraum begrenzt werden.",
+          "call_log_count": "Standard: 20 Anrufe.",
+          "call_log_days": "Standard: 7 Tage."
+        },
+        "title": "FRITZ!Box Anrufe konfigurieren"
       }
     }
   }
