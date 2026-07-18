@@ -34,12 +34,15 @@ mitgelieferte Dashboard-Karte.
   Icon-Filterleiste, Live-Banner und responsivem Layout - keine manuelle
   Lovelace-Ressource nötig.
 - Grafischer Karten-Editor (Home-Assistant-Standardformular): Sensoren,
-  Zeilenanzahl und einzeln zuschaltbare Spalten (Name, Nummer, eigene
-  Rufnummer, Gerät, Dauer, Datum, VIP) lassen sich ohne YAML einstellen.
+  Zeilenanzahl, einzeln zuschaltbare Kategorien (Alle/Gesamt, Eingehend,
+  Ausgehend, Verpasst, Anrufbeantworter) und einzeln zuschaltbare Spalten
+  (Name, Nummer, eigene Rufnummer, Gerät, Dauer, Datum, VIP) lassen sich
+  ohne YAML einstellen.
 - **Experimentell:** Anrufbeantworter-Sensor mit Nachrichtenliste und
   abspielbaren Sprachnachrichten direkt im Dashboard (siehe
   [Bekannte Einschränkungen](#bekannte-einschränkungen) - bislang nicht an
-  echter Hardware getestet).
+  echter Hardware getestet), als ein-/ausblendbare Kategorie innerhalb der
+  gleichen Karte.
 - Alternative: einfache YAML-Tabellenkarte auf Basis von `flex-table-card`
   (siehe [`examples/dashboard_flex_table.yaml`](examples/dashboard_flex_table.yaml)).
 
@@ -161,22 +164,29 @@ lassen sich jederzeit ändern:
 Ab Version 1.0.1 wird die Karte `fritzbox-anrufe-card` automatisch mit der
 Integration ausgeliefert und registriert sich selbst als Lovelace-Ressource
 (keine manuelle Einrichtung nötig - nur einmal Home Assistant neu starten,
-nachdem die Integration installiert/aktualisiert wurde).
+nachdem die Integration installiert/aktualisiert wurde). Es gibt bewusst nur
+diesen einen Kartentyp - Anrufliste und Anrufbeantworter teilen sich eine
+Karte, jede Kategorie darin lässt sich aber einzeln ein-/ausblenden (siehe
+unten).
 
 Funktionen:
 
-- Icon-Leiste oben (Alle / Eingehend / Ausgehend / Verpasst) zum Filtern der
-  Liste per Klick.
-- Standardansicht "Alle" zeigt die neuesten Anrufe aller drei Typen gemischt
-  (sortiert nach Datum), begrenzt auf `max_rows` Zeilen (Standard: 10).
+- Icon-Leiste oben zum Filtern der Liste per Klick - welche Tabs
+  (Alle/Gesamt, Eingehend, Ausgehend, Verpasst) überhaupt erscheinen, ist
+  einzeln konfigurierbar (siehe **Kategorien** unten). Ist nach dem
+  Ausblenden nur noch eine Kategorie übrig, entfällt die Leiste ganz.
+- Kategorie "Alle"/"Gesamt" zeigt die neuesten Anrufe aller aktivierten
+  Anruftypen gemischt (sortiert nach Datum), begrenzt auf `max_rows` Zeilen
+  (Standard: 10).
 - Findet gerade ein Gespräch statt (Live-Sensor ≠ "idle"), erscheint
   oberhalb der Icon-Leiste automatisch ein hervorgehobenes Live-Banner.
-- **Experimentell:** Ist ein Anrufbeantworter-Sensor eingetragen, erscheint
-  unterhalb der Anrufliste ein eigener "Anrufbeantworter"-Bereich mit einer
-  Nachrichtenliste (Name/Nummer/Zeitpunkt/Dauer, neue Nachrichten farblich
-  markiert) sowie einem `<audio>`-Player pro Nachricht zum direkten
-  Abspielen im Dashboard - siehe den Hinweis dazu unter
-  [Bekannte Einschränkungen](#bekannte-einschränkungen).
+- **Experimentell:** Ist ein Anrufbeantworter-Sensor eingetragen und die
+  Kategorie aktiviert, erscheint unterhalb der Anrufliste ein eigener
+  "Anrufbeantworter"-Bereich mit einer Nachrichtenliste
+  (Name/Nummer/Zeitpunkt/Dauer, neue Nachrichten farblich markiert) sowie
+  einem "Abspielen"-Button pro Nachricht - siehe
+  [Wiedergabe der Anrufbeantworter-Nachrichten](#wiedergabe-der-anrufbeantworter-nachrichten)
+  unten für Details, wie das Abspielen technisch funktioniert.
 - Responsives Layout: auf schmalen Bildschirmen (Smartphone) werden
   Tab-Beschriftungen und die Geräte-Spalte ausgeblendet, Name/Nummer/Zeit
   bleiben immer sichtbar.
@@ -192,6 +202,11 @@ entity_ausgehend: sensor.fritz_box_7590_ausgehende_anrufe
 entity_verpasst: sensor.fritz_box_7590_verpasste_anrufe
 entity_voicemail: sensor.fritz_box_7590_anrufbeantworter  # optional, experimentell
 max_rows: 10
+show_alle: true
+show_eingehend: true
+show_ausgehend: true
+show_verpasst: true
+show_anrufbeantworter: true
 show_name: true
 show_number: true
 show_own_number: false
@@ -204,12 +219,36 @@ show_vip: true
 **Grafischer Editor:** Statt die Karte per YAML zu konfigurieren, kann sie
 über die normale Lovelace-Karten-Auswahl bearbeitet werden ("Karte
 bearbeiten" → es öffnet sich automatisch ein Home-Assistant-Standardformular
-statt des YAML-Editors). Dort lassen sich Titel, alle fünf Sensoren sowie
-die Zeilenanzahl per Eingabefeld/Entity-Picker setzen und jede der sieben
-Spalten (Name, Nummer, eigene Rufnummer, Gerät, Dauer, Datum, VIP) einzeln
-per Schalter ein-/ausblenden. Die tatsächlichen Entity-IDs findest du unter
-Einstellungen → Geräte & Dienste → Entitäten (Suche nach
-"Anrufe"/"Call monitor"/"Anrufbeantworter").
+statt des YAML-Editors). Dort lassen sich Titel, alle fünf Sensoren sowie die
+Zeilenanzahl per Eingabefeld/Entity-Picker setzen. Die tatsächlichen
+Entity-IDs findest du unter Einstellungen → Geräte & Dienste → Entitäten
+(Suche nach "Anrufe"/"Call monitor"/"Anrufbeantworter").
+
+**Kategorien:** Fünf Schalter (`show_alle`, `show_eingehend`,
+`show_ausgehend`, `show_verpasst`, `show_anrufbeantworter`) blenden ganze
+Kategorien ein oder aus - unabhängig davon, ob eine Entity dafür konfiguriert
+ist. Eine deaktivierte Kategorie verschwindet aus der Icon-Leiste und wird
+auch aus der "Alle"/"Gesamt"-Sammelansicht herausgerechnet; der
+Anrufbeantworter-Bereich verschwindet entsprechend komplett, wenn
+`show_anrufbeantworter` auf `false` steht.
+
+**Spalten:** Sieben weitere Schalter (`show_name`, `show_number`,
+`show_own_number`, `show_device`, `show_duration`, `show_date`, `show_vip`)
+blenden einzelne Spalten der Anrufliste ein oder aus.
+
+### Wiedergabe der Anrufbeantworter-Nachrichten
+
+Ein `<audio src="...">` kann in Home Assistant grundsätzlich keine
+Zugangsdaten mitschicken - der Browser hängt an eine reine Medien-URL keinen
+Authorization-Header an. Deshalb setzt die Karte die Aufnahme-URL nicht
+direkt als `src`, sondern zeigt pro Nachricht zunächst einen
+"Abspielen"-Button. Erst ein Klick darauf lädt die Aufnahme über die
+authentifizierte Fetch-Funktion, die Home Assistant Karten dafür zur
+Verfügung stellt (`hass.fetchWithAuth`), und übergibt sie danach als
+abspielbaren Audio-Player. Ohne diesen Umweg schlägt die Wiedergabe fehl und
+im Home-Assistant-Log erscheint eine Meldung wie *"Login attempt or request
+with invalid authentication ... /api/fritzbox_anrufe/tam_media/..."* vom
+`http.ban`-Modul - das war das Verhalten vor diesem Fix.
 
 ### Variante 2: flex-table-card (YAML, spaltenweise ein-/ausblendbar)
 
@@ -268,7 +307,10 @@ Die Entitäten selbst haben bereits passende Icons (`mdi:phone`,
   Home-Assistant-authentifizierten Proxy (die FRITZ!Box-Anmeldedaten
   verlassen dabei nie den Home-Assistant-Server); pro Wiedergabe wird die
   Audiodatei einmal komplett von der FRITZ!Box geladen, es gibt aktuell kein
-  Streaming/Caching.
+  Streaming/Caching. Aus demselben Grund ist in beiden Karten bewusst ein
+  "Abspielen"-Button statt eines direkt befüllten `<audio src="...">`
+  verbaut - siehe
+  [Wiedergabe der Anrufbeantworter-Nachrichten](#wiedergabe-der-anrufbeantworter-nachrichten).
 
 ## Versionshistorie
 
@@ -281,9 +323,12 @@ Die Entitäten selbst haben bereits passende Icons (`mdi:phone`,
   `fritzbox-anrufe-card` (Icon-Filterleiste, Live-Banner, responsives
   Layout, grafischer Karten-Editor mit Sensor-/Zeilen-/Spaltenauswahl);
   **experimenteller** Anrufbeantworter-Sensor mit im Dashboard direkt
-  abspielbaren Sprachnachrichten (authentifizierter Server-Proxy, siehe
-  [Bekannte Einschränkungen](#bekannte-einschränkungen)); FRITZ!-Marken-Icon
-  (`brand/`); Übersetzungsdateien (`translations/`) ergänzt, die für
+  abspielbaren Sprachnachrichten über einen authentifizierten Server-Proxy
+  und "Abspielen"-Button (`hass.fetchWithAuth`, siehe
+  [Bekannte Einschränkungen](#bekannte-einschränkungen)); alle Kategorien
+  (Alle/Gesamt, Eingehend, Ausgehend, Verpasst, Anrufbeantworter) einzeln
+  ein-/ausblendbar auf derselben Karte; FRITZ!-Marken-Icon (`brand/`);
+  Übersetzungsdateien (`translations/`) ergänzt, die für
   Home-Assistant-Custom-Integrations zwingend nötig sind, damit übersetzte
   Entitätsnamen überhaupt greifen.
 - **1.0.0**: Umbenennung von `fritzbox_callmonitor` auf `fritzbox_anrufe`;
@@ -312,7 +357,18 @@ Die Entitäten selbst haben bereits passende Icons (`mdi:phone`,
   `GetMessageList`**: experimentelle Funktion, siehe
   [Bekannte Einschränkungen](#bekannte-einschränkungen) - bitte mit dem
   Log-Auszug als GitHub-Issue melden.
-- **Sprachnachricht lässt sich in der Karte nicht abspielen**: prüfen, ob
-  die Kontoberechtigung "Sprachnachrichten, Faxnachrichten, FRITZ!App Fon
-  und Anrufliste" gesetzt ist; ansonsten Home-Assistant-Log nach Warnungen
-  von `fritzbox_anrufe` zur betroffenen Nachrichten-ID durchsuchen.
+- **Log-Meldung "Login attempt or request with invalid authentication ...
+  /api/fritzbox_anrufe/tam_media/..." (Quelle `components/http/ban.py`)**:
+  war vor Version 1.0.1 (Zweitkorrektur) das erwartete Verhalten, wenn eine
+  Sprachnachricht abgespielt wurde - behoben, siehe
+  [Wiedergabe der Anrufbeantworter-Nachrichten](#wiedergabe-der-anrufbeantworter-nachrichten).
+  Tritt es weiterhin auf: Integration auf die neueste Version aktualisiert
+  und Home Assistant vollständig neu gestartet (nicht nur neu geladen), damit
+  die aktualisierte Karten-Datei vom Browser geladen wird? Zusätzlich
+  Browser-Cache leeren (Strg+Shift+R).
+- **Sprachnachricht lässt sich in der Karte nicht abspielen** (Button zeigt
+  "Fehler – erneut versuchen"): prüfen, ob die Kontoberechtigung
+  "Sprachnachrichten, Faxnachrichten, FRITZ!App Fon und Anrufliste" gesetzt
+  ist; ansonsten Home-Assistant-Log nach Warnungen von `fritzbox_anrufe` zur
+  betroffenen Nachrichten-ID durchsuchen, sowie die Browser-Konsole (F12) auf
+  Fehler beim Laden von `/api/fritzbox_anrufe/tam_media/...` prüfen.
