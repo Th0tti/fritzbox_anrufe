@@ -5,9 +5,14 @@
  *
  * Shows a filterable list of incoming/outgoing/missed FRITZ!Box calls with
  * an icon bar (Alle / Eingehend / Ausgehend / Verpasst) to switch between
- * them, plus a live-call banner above the icons whenever a call is
- * currently ringing/dialing/ongoing. Responsive: the layout stays legible
- * on both a phone-width and a desktop-width dashboard.
+ * them, a live-call banner above the icons whenever a call is currently
+ * ringing/dialing/ongoing, and an optional Anrufbeantworter (answering
+ * machine) section with inline playback. Responsive: the layout stays
+ * legible on both a phone-width and a desktop-width dashboard.
+ *
+ * Includes a graphical config editor (via getConfigElement) to pick the
+ * entities, the row count, and which call attributes/columns are shown -
+ * no YAML editing required, though YAML configuration still works.
  *
  * Bundled with and auto-registered by the fritzbox_anrufe custom
  * integration (see custom_components/fritzbox_anrufe/__init__.py) - no
@@ -21,7 +26,15 @@
  *   entity_eingehend: sensor.fritz_box_7590_eingehende_anrufe
  *   entity_ausgehend: sensor.fritz_box_7590_ausgehende_anrufe
  *   entity_verpasst: sensor.fritz_box_7590_verpasste_anrufe
+ *   entity_voicemail: sensor.fritz_box_7590_anrufbeantworter
  *   max_rows: 10
+ *   show_name: true
+ *   show_number: true
+ *   show_own_number: false
+ *   show_device: true
+ *   show_duration: true
+ *   show_date: true
+ *   show_vip: true
  */
 
 const FILTER_ALL = "alle";
@@ -42,6 +55,48 @@ const LIVE_STATE_LABELS = {
 
 const LIVE_INACTIVE_STATES = new Set(["idle", "unavailable", "unknown", ""]);
 
+const CONFIG_DEFAULTS = {
+  title: "FRITZ!Box Anrufe",
+  max_rows: 10,
+  show_name: true,
+  show_number: true,
+  show_own_number: false,
+  show_device: true,
+  show_duration: true,
+  show_date: true,
+  show_vip: true,
+};
+
+function withDefaults(config) {
+  return { ...CONFIG_DEFAULTS, ...(config || {}) };
+}
+
+function escapeHtml(value) {
+  return String(value === undefined || value === null ? "" : value).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      }[c])
+  );
+}
+
+function formatDateTime(iso) {
+  if (!iso) return "";
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  return parsed.toLocaleString("de-DE", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 class FritzboxAnrufeCard extends HTMLElement {
   constructor() {
     super();
@@ -60,11 +115,7 @@ class FritzboxAnrufeCard extends HTMLElement {
         "fritzbox-anrufe-card: entity_eingehend, entity_ausgehend und entity_verpasst sind erforderlich."
       );
     }
-    this._config = {
-      title: "FRITZ!Box Anrufe",
-      max_rows: 10,
-      ...config,
-    };
+    this._config = withDefaults(config);
     this._activeFilter = FILTER_ALL;
     this._render();
   }
@@ -82,15 +133,20 @@ class FritzboxAnrufeCard extends HTMLElement {
     return 5;
   }
 
+  static getConfigElement() {
+    return document.createElement("fritzbox-anrufe-card-editor");
+  }
+
   static getStubConfig(hass, entities) {
     const guess = (suffix) =>
       (entities || []).find((e) => e.startsWith("sensor.") && e.includes(suffix)) || "";
     return {
+      ...CONFIG_DEFAULTS,
       entity_live: guess("call_monitor") || guess("live"),
       entity_eingehend: guess("eingehend"),
       entity_ausgehend: guess("ausgehend"),
       entity_verpasst: guess("verpasst"),
-      max_rows: 10,
+      entity_voicemail: guess("anrufbeantworter") || guess("voicemail"),
     };
   }
 
@@ -119,6 +175,13 @@ class FritzboxAnrufeCard extends HTMLElement {
     return this._callsFor(this._activeFilter).slice(0, maxRows);
   }
 
+  _voicemails() {
+    const stateObj = this._entityState(this._config.entity_voicemail);
+    if (!stateObj) return [];
+    const messages = stateObj.attributes ? stateObj.attributes.messages : undefined;
+    return Array.isArray(messages) ? messages : [];
+  }
+
   _liveStateObj() {
     return this._entityState(this._config.entity_live);
   }
@@ -128,34 +191,8 @@ class FritzboxAnrufeCard extends HTMLElement {
     return !!stateObj && !LIVE_INACTIVE_STATES.has(stateObj.state);
   }
 
-  _formatDate(iso) {
-    if (!iso) return "";
-    const parsed = new Date(iso);
-    if (Number.isNaN(parsed.getTime())) return iso;
-    return parsed.toLocaleString("de-DE", {
-      day: "2-digit",
-      month: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
   _typeIcon(type) {
     return (FILTER_META[type] && FILTER_META[type].icon) || "mdi:phone";
-  }
-
-  _escape(value) {
-    return String(value === undefined || value === null ? "" : value).replace(
-      /[&<>"']/g,
-      (c) =>
-        ({
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          '"': "&quot;",
-          "'": "&#39;",
-        }[c])
-    );
   }
 
   _renderLiveBanner() {
@@ -170,8 +207,8 @@ class FritzboxAnrufeCard extends HTMLElement {
       <div class="live-banner">
         <ha-icon icon="mdi:phone-in-talk"></ha-icon>
         <div class="live-banner-text">
-          <span class="live-state">${this._escape(label)}</span>
-          <span class="live-detail">${this._escape(name)}${separator}${this._escape(number)}</span>
+          <span class="live-state">${escapeHtml(label)}</span>
+          <span class="live-detail">${escapeHtml(name)}${separator}${escapeHtml(number)}</span>
         </div>
       </div>
     `;
@@ -189,10 +226,10 @@ class FritzboxAnrufeCard extends HTMLElement {
               role="tab"
               aria-selected="${type === this._activeFilter}"
               data-filter="${type}"
-              title="${this._escape(meta.label)}"
+              title="${escapeHtml(meta.label)}"
             >
               <ha-icon icon="${meta.icon}"></ha-icon>
-              <span>${this._escape(meta.label)}</span>
+              <span>${escapeHtml(meta.label)}</span>
             </button>
           `;
         }).join("")}
@@ -202,6 +239,7 @@ class FritzboxAnrufeCard extends HTMLElement {
 
   _renderRows() {
     const calls = this._visibleCalls();
+    const cfg = this._config;
     if (!calls.length) {
       return `<div class="empty">Keine Anrufe vorhanden.</div>`;
     }
@@ -214,17 +252,18 @@ class FritzboxAnrufeCard extends HTMLElement {
             <ha-icon class="row-icon" icon="${this._typeIcon(call.type)}"></ha-icon>
             <div class="row-main">
               <div class="row-primary">
-                <span class="row-name">${this._escape(call.name || call.number || "Unbekannt")}</span>
-                ${call.vip ? '<ha-icon class="vip" icon="mdi:star"></ha-icon>' : ""}
+                ${cfg.show_name ? `<span class="row-name">${escapeHtml(call.name || call.number || "Unbekannt")}</span>` : ""}
+                ${cfg.show_vip && call.vip ? '<ha-icon class="vip" icon="mdi:star"></ha-icon>' : ""}
               </div>
               <div class="row-secondary">
-                <span class="row-number">${this._escape(call.number || "")}</span>
-                <span class="row-date">${this._formatDate(call.date)}</span>
+                ${cfg.show_number ? `<span class="row-number">${escapeHtml(call.number || "")}</span>` : ""}
+                ${cfg.show_own_number && call.own_number ? `<span class="row-own-number">${escapeHtml(call.own_number)}</span>` : ""}
+                ${cfg.show_date ? `<span class="row-date">${formatDateTime(call.date)}</span>` : ""}
               </div>
             </div>
             <div class="row-extra">
-              ${call.duration ? `<span class="row-duration">${this._escape(call.duration)}</span>` : ""}
-              ${call.device ? `<span class="row-device">${this._escape(call.device)}</span>` : ""}
+              ${cfg.show_duration && call.duration ? `<span class="row-duration">${escapeHtml(call.duration)}</span>` : ""}
+              ${cfg.show_device && call.device ? `<span class="row-device">${escapeHtml(call.device)}</span>` : ""}
             </div>
           </div>
         `
@@ -234,16 +273,60 @@ class FritzboxAnrufeCard extends HTMLElement {
     `;
   }
 
+  _renderVoicemailSection() {
+    if (!this._config.entity_voicemail) return "";
+    const messages = this._voicemails();
+    return `
+      <div class="voicemail-section">
+        <div class="voicemail-header">
+          <ha-icon icon="mdi:voicemail"></ha-icon>
+          <span>Anrufbeantworter</span>
+        </div>
+        ${
+          messages.length
+            ? `<div class="voicemail-rows">
+                ${messages
+                  .map(
+                    (msg) => `
+                  <div class="voicemail-row ${msg.new ? "unread" : ""}">
+                    <div class="voicemail-main">
+                      <div class="voicemail-primary">
+                        <span class="voicemail-name">${escapeHtml(msg.name || msg.number || "Unbekannt")}</span>
+                        ${msg.new ? '<span class="voicemail-badge">neu</span>' : ""}
+                      </div>
+                      <div class="voicemail-secondary">
+                        <span>${escapeHtml(msg.number || "")}</span>
+                        <span>${formatDateTime(msg.date)}</span>
+                        ${msg.duration ? `<span>${escapeHtml(msg.duration)}</span>` : ""}
+                      </div>
+                    </div>
+                    ${
+                      msg.media_url
+                        ? `<audio class="voicemail-player" controls preload="none" src="${escapeHtml(msg.media_url)}"></audio>`
+                        : `<span class="voicemail-no-audio">Kein Wiedergabelink</span>`
+                    }
+                  </div>
+                `
+                  )
+                  .join("")}
+              </div>`
+            : `<div class="empty">Keine Nachrichten vorhanden.</div>`
+        }
+      </div>
+    `;
+  }
+
   _render() {
     if (!this._config || !this._hass) return;
 
     this.shadowRoot.innerHTML = `
       <style>${this._styles()}</style>
-      <ha-card header="${this._escape(this._config.title)}">
+      <ha-card header="${escapeHtml(this._config.title)}">
         <div class="card-content">
           ${this._renderLiveBanner()}
           ${this._renderTabs()}
           ${this._renderRows()}
+          ${this._renderVoicemailSection()}
         </div>
       </ha-card>
     `;
@@ -348,7 +431,8 @@ class FritzboxAnrufeCard extends HTMLElement {
         color: var(--secondary-text-color, #727272);
         overflow: hidden;
       }
-      .row-number { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .row-number,
+      .row-own-number { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .row-date { flex-shrink: 0; }
       .row-extra {
         flex-shrink: 0;
@@ -359,6 +443,54 @@ class FritzboxAnrufeCard extends HTMLElement {
         font-size: 0.8em;
         color: var(--secondary-text-color, #727272);
         text-align: right;
+      }
+
+      .voicemail-section {
+        margin-top: 16px;
+        padding-top: 12px;
+        border-top: 1px solid var(--divider-color, #e0e0e0);
+      }
+      .voicemail-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        font-weight: 600;
+        color: var(--primary-text-color);
+      }
+      .voicemail-rows { display: flex; flex-direction: column; gap: 10px; }
+      .voicemail-row {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 8px;
+        border-radius: 8px;
+        background: var(--secondary-background-color, rgba(0, 0, 0, 0.04));
+      }
+      .voicemail-row.unread { border-left: 3px solid var(--primary-color, #03a9f4); }
+      .voicemail-main { display: flex; flex-direction: column; gap: 2px; }
+      .voicemail-primary { display: flex; align-items: center; gap: 6px; }
+      .voicemail-name { font-weight: 500; }
+      .voicemail-badge {
+        font-size: 0.7em;
+        text-transform: uppercase;
+        background: var(--primary-color, #03a9f4);
+        color: var(--text-primary-color, #fff);
+        border-radius: 4px;
+        padding: 1px 6px;
+      }
+      .voicemail-secondary {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        font-size: 0.8em;
+        color: var(--secondary-text-color, #727272);
+      }
+      .voicemail-player { width: 100%; height: 32px; margin-top: 2px; }
+      .voicemail-no-audio {
+        font-size: 0.8em;
+        color: var(--secondary-text-color, #727272);
+        font-style: italic;
       }
 
       /* --- Responsive: schmale Ansicht (Smartphone) --- */
@@ -372,12 +504,97 @@ class FritzboxAnrufeCard extends HTMLElement {
   }
 }
 
+/**
+ * fritzbox-anrufe-card-editor
+ * -----------------------------
+ * Graphical config editor shown by the Lovelace card picker/edit dialog.
+ * Built on Home Assistant's own <ha-form> so it automatically matches the
+ * standard HA look (entity pickers, toggles, number field) instead of a
+ * hand-rolled UI.
+ */
+
+const EDITOR_LABELS = {
+  title: "Titel",
+  entity_live: "Sensor: Live-Anrufmonitor (optional)",
+  entity_eingehend: "Sensor: Eingehende Anrufe",
+  entity_ausgehend: "Sensor: Ausgehende Anrufe",
+  entity_verpasst: "Sensor: Verpasste Anrufe",
+  entity_voicemail: "Sensor: Anrufbeantworter (optional)",
+  max_rows: "Max. Zeilen",
+  show_name: "Name anzeigen",
+  show_number: "Nummer anzeigen",
+  show_own_number: "Eigene Rufnummer anzeigen",
+  show_device: "Gerät anzeigen",
+  show_duration: "Dauer anzeigen",
+  show_date: "Datum/Uhrzeit anzeigen",
+  show_vip: "VIP-Markierung anzeigen",
+};
+
+function computeEditorLabel(schemaItem) {
+  return EDITOR_LABELS[schemaItem.name] || schemaItem.name;
+}
+
+const EDITOR_SCHEMA = [
+  { name: "title", selector: { text: {} } },
+  { name: "entity_live", selector: { entity: { domain: "sensor" } } },
+  { name: "entity_eingehend", selector: { entity: { domain: "sensor" } } },
+  { name: "entity_ausgehend", selector: { entity: { domain: "sensor" } } },
+  { name: "entity_verpasst", selector: { entity: { domain: "sensor" } } },
+  { name: "entity_voicemail", selector: { entity: { domain: "sensor" } } },
+  { name: "max_rows", selector: { number: { min: 1, max: 200, mode: "box" } } },
+  { name: "show_name", selector: { boolean: {} } },
+  { name: "show_number", selector: { boolean: {} } },
+  { name: "show_own_number", selector: { boolean: {} } },
+  { name: "show_device", selector: { boolean: {} } },
+  { name: "show_duration", selector: { boolean: {} } },
+  { name: "show_date", selector: { boolean: {} } },
+  { name: "show_vip", selector: { boolean: {} } },
+];
+
+class FritzboxAnrufeCardEditor extends HTMLElement {
+  setConfig(config) {
+    this._config = withDefaults(config);
+    this._render();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._render();
+  }
+
+  _valueChanged(ev) {
+    ev.stopPropagation();
+    this._config = ev.detail.value;
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config: this._config },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  _render() {
+    if (!this._hass || !this._config) return;
+    if (!this._form) {
+      this._form = document.createElement("ha-form");
+      this._form.addEventListener("value-changed", (ev) => this._valueChanged(ev));
+      this.appendChild(this._form);
+    }
+    this._form.hass = this._hass;
+    this._form.data = this._config;
+    this._form.schema = EDITOR_SCHEMA;
+    this._form.computeLabel = computeEditorLabel;
+  }
+}
+
 customElements.define("fritzbox-anrufe-card", FritzboxAnrufeCard);
+customElements.define("fritzbox-anrufe-card-editor", FritzboxAnrufeCardEditor);
 
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "fritzbox-anrufe-card",
   name: "FRITZ!Box Anrufe",
   description:
-    "Zeigt eingehende, ausgehende und verpasste FRITZ!Box-Anrufe als filterbare Liste inkl. Live-Anzeige.",
+    "Zeigt eingehende, ausgehende und verpasste FRITZ!Box-Anrufe als filterbare Liste inkl. Live-Anzeige und Anrufbeantworter.",
 });
