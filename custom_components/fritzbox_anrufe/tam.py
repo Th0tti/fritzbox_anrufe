@@ -36,25 +36,40 @@ several revisions:
    instead - identical 404 on real hardware. Since switching GET/POST and
    the sid mechanism didn't change the *symptom* at all, the endpoint
    itself was suspect, not just the auth details.
-3. **Current approach**: FRITZ!Box's classic web UI does not use
-   ``download.lua`` for TAM recordings on newer FRITZ!OS versions at all -
-   it uses ``/cgi-bin/luacgi_notimeout`` with ``script=/lua/photo.lua`` and
-   the recording's raw path as ``myabfile`` (this is also how FRITZ!Box
-   serves e.g. photos/files from USB storage - ``photo.lua`` is a generic
-   binary-file-serving script, not literally photo-specific). This was
-   found via FHEM's mature ``72_FBTAM.pm`` module and independently
-   corroborated by a real-world writeup (FRITZ!Box 7530, FRITZ!OS 7.57,
-   https://kynan.github.io/blog/2023/12/28/save-all-voicebox-messages-from-your-fritzbox)
-   describing the exact same endpoint. Both sources also agree the sid
-   used must be the one embedded in the ``GetMessageList``/TAM response's
-   own URL, not a separately-obtained classic-UI login sid - which would
-   also explain why attempts 1 and 2 above failed even once a valid sid
-   was being sent: a *different, unrelated* session than the one the box
-   associated with the message list. See :meth:`FritzTam.get_download_url`.
+3. GET ``/cgi-bin/luacgi_notimeout?sid=...&script=/lua/photo.lua&
+   myabfile=...`` (the recording's raw path as ``myabfile`` - this is also
+   how FRITZ!Box serves e.g. files from USB storage; ``photo.lua`` is a
+   generic binary-file-serving script, not literally photo-specific),
+   still resolved against the *TR-064* origin (the host:port that
+   ``GetMessageList`` itself replied from, typically port 49000) - not
+   independently confirmed working before shipping, so status unclear.
+4. **Current approach**: same ``luacgi_notimeout``/``photo.lua`` endpoint
+   as (3), found independently in three places - FHEM's mature
+   ``72_FBTAM.pm`` module, a real-world writeup (FRITZ!Box 7530, FRITZ!OS
+   7.57, https://kynan.github.io/blog/2023/12/28/save-all-voicebox-messages-from-your-fritzbox),
+   and a working bash script posted in an iobroker forum thread
+   (https://forum.iobroker.net/topic/49269) - but resolved against the
+   FRITZ!Box's normal *web-UI* origin (port 80/443, i.e. the same
+   host:port :class:`~fritzconnection.core.fritzhttp.FritzHttp` itself
+   uses for the classic login) rather than the TR-064 port. TR-064 (port
+   49000) serves SOAP/XML only; ``/cgi-bin/...`` is a classic web-UI path
+   that most likely never existed on that port to begin with, which would
+   explain why attempt (3) could fail even with the right endpoint and a
+   right-looking sid.
 
-This third approach is itself not yet confirmed against the user's actual
-hardware - please open a GitHub issue (ideally with the resulting HTTP
-status code) if it still fails.
+   The three sources above also disagree on where the sid itself should
+   come from: FBTAM and the blog extract it from ``GetMessageList``'s own
+   response URL, while the iobroker script performs a completely separate
+   classic-web-UI login (the same challenge-response flow ``FritzHttp``
+   already implements). Rather than gamble on a fourth single theory,
+   :meth:`FritzTamCoordinator.fetch_audio` in ``voicemail.py`` now tries
+   both, in order (the embedded sid first since it costs no extra login,
+   then a fresh ``FritzHttp`` login as fallback) against the corrected
+   web-UI origin, and only gives up once every combination has failed.
+
+This is still not confirmed against the user's actual hardware - please
+open a GitHub issue (ideally with the resulting HTTP status code for each
+attempt, visible in the Home Assistant log) if it still fails.
 """
 
 from __future__ import annotations
@@ -216,34 +231,39 @@ class FritzTam:
         root = get_xml_root(url, session=self.fc.session)
         return list(TamMessageCollection(root))
 
-    def get_download_url(self, message: TamMessage) -> str | None:
-        """Build an authenticated download URL for one message's recording.
+    def get_message_list_sid(self) -> str | None:
+        """Issue a fresh GetMessageList call and return its embedded sid.
 
-        See the module docstring (download approach 3) for why this is
-        ``/cgi-bin/luacgi_notimeout?sid=...&script=/lua/photo.lua&myabfile=...``
-        rather than the ``download.lua`` URL suggested by ``message.Path``
-        itself, and why the sid is pulled fresh from a new
-        ``GetMessageList`` call rather than reused/separately obtained: the
-        sid the box accepts for a recording download appears to be tied to
-        the specific session that produced the message list, not a
-        general-purpose FRITZ!Box login.
+        One of two candidate sids tried for downloading a recording - see
+        the module docstring. A fresh call is made (rather than reusing
+        one from an earlier ``get_messages()``) so the sid is as current
+        as possible; TAM-related sids are not expected to be long-lived.
         """
-        if not message.Path:
-            return None
-
         list_url = self._message_list_url()
         if not list_url:
             return None
-
         sid_match = _SID_RE.search(list_url)
         if not sid_match:
             _LOGGER.warning(
                 "Anrufbeantworter: konnte keine sid aus der GetMessageList-"
-                "Antwort-URL (%s) extrahieren - Download nicht möglich.",
+                "Antwort-URL (%s) extrahieren.",
                 list_url,
             )
             return None
-        sid = sid_match.group(1)
+        return sid_match.group(1)
+
+    def build_download_url(
+        self, message: TamMessage, sid: str, origin: str
+    ) -> str | None:
+        """Build one candidate download URL for a message, given a sid.
+
+        ``origin`` supplies the scheme+host+port the (path-only)
+        ``/cgi-bin/luacgi_notimeout`` endpoint is resolved against - pass
+        the FRITZ!Box's normal web-UI address (port 80/443), NOT the
+        TR-064 port; see the module docstring for why.
+        """
+        if not message.Path:
+            return None
 
         # message.Path is normally "/download.lua?path=<raw file path>" -
         # pull just the raw path back out. Fall back to using message.Path
@@ -255,4 +275,4 @@ class FritzTam:
         download_query = urlencode(
             {"sid": sid, "script": _DOWNLOAD_SCRIPT, "myabfile": raw_path}
         )
-        return urljoin(list_url, f"{_DOWNLOAD_PATH}?{download_query}")
+        return urljoin(origin, f"{_DOWNLOAD_PATH}?{download_query}")
