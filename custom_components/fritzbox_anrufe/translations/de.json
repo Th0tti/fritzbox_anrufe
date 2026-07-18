@@ -102,6 +102,12 @@
         "state_attributes": {
           "calls": { "name": "Anrufe" }
         }
+      },
+      "fritzbox_anrufe_anrufbeantworter": {
+        "name": "Anrufbeantworter {phonebook_name}",
+        "state_attributes": {
+          "messages": { "name": "Nachrichten" }
+        }
       }
     }
   },
