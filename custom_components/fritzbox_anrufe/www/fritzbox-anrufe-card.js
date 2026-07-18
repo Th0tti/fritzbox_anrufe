@@ -739,7 +739,13 @@ const EDITOR_SCHEMA = [
   { name: "entity_ausgehend", selector: { entity: { domain: "sensor" } } },
   { name: "entity_verpasst", selector: { entity: { domain: "sensor" } } },
   { name: "entity_voicemail", selector: { entity: { domain: "sensor" } } },
-  { name: "max_rows", selector: { number: { min: 1, max: 200, mode: "box" } } },
+  // "slider" statt "box": das Zahlenfeld ("box") ließ sich bei manchen
+  // Nutzern nicht zuverlässig per Tastatur bearbeiten (Eingaben wurden
+  // teils zurückgesetzt) - ein Schieberegler kommt komplett ohne
+  // Texteingabe aus und umgeht das Problem. Wer mehr als 15 Zeilen
+  // braucht, kann max_rows weiterhin über den YAML-Editor der Karte auf
+  // einen beliebigen Wert setzen.
+  { name: "max_rows", selector: { number: { min: 1, max: 15, step: 1, mode: "slider" } } },
   { name: "show_alle", selector: { boolean: {} } },
   { name: "show_eingehend", selector: { boolean: {} } },
   { name: "show_ausgehend", selector: { boolean: {} } },
