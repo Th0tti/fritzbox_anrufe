@@ -17,6 +17,9 @@
       },
       "fritzbox_anrufe_verpasst": {
         "default": "mdi:phone-missed"
+      },
+      "fritzbox_anrufe_anrufbeantworter": {
+        "default": "mdi:voicemail"
       }
     }
   }

@@ -52,6 +52,17 @@ CALL_TYPE_LIVE = "live"
 
 CALL_TYPES = (CALL_TYPE_INCOMING, CALL_TYPE_OUTGOING, CALL_TYPE_MISSED)
 
+# --- Anrufbeantworter-Sensor (fritzbox_anrufe_anrufbeantworter) - EXPERIMENTELL ---
+# Deckt nur Anrufbeantworter/Sprachnachrichten ab, bewusst kein Fax (siehe
+# tam.py/voicemail.py). Kein Bestandteil von CALL_TYPES, da dieser Sensor
+# keine eigene Anzahl/Tage-Verlaufskonfiguration hat (siehe config_flow.py).
+CALL_TYPE_VOICEMAIL = "anrufbeantworter"
+
+# Basis-URL des authentifizierten HTTP-Proxys, über den Anrufbeantworter-
+# Aufnahmen im Dashboard abgespielt werden (siehe http.py). Vollständiger
+# Pfad: f"{TAM_MEDIA_URL_BASE}/{config_entry_id}/{message_index}".
+TAM_MEDIA_URL_BASE = "/api/fritzbox_anrufe/tam_media"
+
 # Konfigurierbare Verlaufstiefe der drei Anruflisten-Sensoren - jeder Typ
 # (eingehend/ausgehend/verpasst) hat seine EIGENEN, unabhängig einstellbaren
 # Optionen (Options-Flow UND bereits bei der Erst-Einrichtung).

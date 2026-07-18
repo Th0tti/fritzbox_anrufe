@@ -26,14 +26,18 @@ from .const import (
     ATTR_PREFIXES,
     CALL_TYPE_LIVE,
     CALL_TYPE_OUTGOING,
+    CALL_TYPE_VOICEMAIL,
     CALL_TYPES,
     CONF_PHONEBOOK,
     CONF_PREFIXES,
     DOMAIN,
     MANUFACTURER,
     SERIAL_NUMBER,
+    TAM_MEDIA_URL_BASE,
     FritzState,
 )
+from .tam import TamMessage
+from .voicemail import FritzTamCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,6 +74,7 @@ async def async_setup_entry(
     runtime_data: FritzBoxRuntimeData = config_entry.runtime_data
     fritzbox_phonebook = runtime_data.phonebook
     call_log_coordinator = runtime_data.call_log_coordinator
+    tam_coordinator = runtime_data.tam_coordinator
 
     phonebook_id: int = config_entry.data[CONF_PHONEBOOK]
     prefixes: list[str] | None = config_entry.options.get(CONF_PREFIXES)
@@ -102,7 +107,25 @@ async def async_setup_entry(
         for call_type in CALL_TYPES
     ]
 
-    async_add_entities([live_sensor, *call_list_sensors])
+    entities: list[SensorEntity] = [live_sensor, *call_list_sensors]
+
+    # Anrufbeantworter-Sensor (EXPERIMENTELL, siehe tam.py). Nur hinzufügen,
+    # wenn der Coordinator tatsächlich erstellt werden konnte - er wird nie
+    # None sein (siehe __init__.py), das defensive `is not None` schützt
+    # nur gegen künftige Änderungen an dieser Voraussetzung.
+    if tam_coordinator is not None:
+        entities.append(
+            FritzBoxVoicemailSensor(
+                coordinator=tam_coordinator,
+                unique_id=f"{unique_id}-{CALL_TYPE_VOICEMAIL}",
+                phonebook_name=config_entry.title,
+                fritzbox_phonebook=fritzbox_phonebook,
+                device_info=device_info,
+                config_entry_id=config_entry.entry_id,
+            )
+        )
+
+    async_add_entities(entities)
 
 
 class FritzBoxCallSensor(SensorEntity):
@@ -282,6 +305,80 @@ class FritzBoxCallListSensor(CoordinatorEntity[FritzCallLogCoordinator], SensorE
             "device": call.Device or None,
             "duration": str(duration) if isinstance(duration, timedelta) else None,
             "vip": contact.vip if contact else False,
+        }
+
+
+class FritzBoxVoicemailSensor(CoordinatorEntity[FritzTamCoordinator], SensorEntity):
+    """Answering-machine sensor: fritzbox_anrufe_anrufbeantworter.
+
+    EXPERIMENTAL - see the module docstring in ``tam.py``. Fed by
+    :class:`FritzTamCoordinator`, which polls the FRITZ!Box answering
+    machine (TAM) message list via TR-064. Its state is the number of
+    messages currently held, the full list (incl. a playable
+    ``media_url`` per message, served by the authenticated proxy in
+    ``http.py``) is exposed as the ``messages`` attribute.
+    """
+
+    _attr_has_entity_name = True
+    _attr_native_unit_of_measurement = "Nachrichten"
+    _attr_icon = "mdi:voicemail"
+
+    def __init__(
+        self,
+        coordinator: FritzTamCoordinator,
+        unique_id: str,
+        phonebook_name: str,
+        fritzbox_phonebook: FritzBoxPhonebook,
+        device_info: DeviceInfo,
+        config_entry_id: str,
+    ) -> None:
+        """Initialize the answering-machine sensor."""
+        super().__init__(coordinator)
+        self._fritzbox_phonebook = fritzbox_phonebook
+        self._config_entry_id = config_entry_id
+
+        self._attr_translation_key = f"{DOMAIN}_{CALL_TYPE_VOICEMAIL}"
+        self._attr_translation_placeholders = {"phonebook_name": phonebook_name}
+        self._attr_unique_id = unique_id
+        self._attr_device_info = device_info
+
+    @property
+    def _messages(self) -> list[TamMessage]:
+        """Return the raw TamMessage objects currently held."""
+        return self.coordinator.data or []
+
+    @property
+    @override
+    def native_value(self) -> int:
+        """Return the number of answering-machine messages currently held."""
+        return len(self._messages)
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, list[dict[str, Any]]]:
+        """Return the messages as a list of dicts, e.g. for a dashboard."""
+        return {"messages": [self._message_to_dict(message) for message in self._messages]}
+
+    def _message_to_dict(self, message: TamMessage) -> dict[str, Any]:
+        """Convert one TamMessage instance into a flat, table-friendly dict."""
+        contact = None
+        if message.Number:
+            contact = self._fritzbox_phonebook.get_contact(message.Number)
+
+        duration = message.duration
+        media_url = (
+            f"{TAM_MEDIA_URL_BASE}/{self._config_entry_id}/{message.Index}"
+            if message.Path
+            else None
+        )
+        return {
+            "name": message.Name or (contact.name if contact else None),
+            "number": message.Number or None,
+            "date": message.date.isoformat() if isinstance(message.date, datetime) else None,
+            "duration": str(duration) if isinstance(duration, timedelta) else None,
+            "new": bool(message.new),
+            "vip": contact.vip if contact else False,
+            "media_url": media_url,
         }
 
 
