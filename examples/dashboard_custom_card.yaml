@@ -1,0 +1,32 @@
+# Beispiel-Dashboard-Karte für fritzbox_anrufe (Custom Card, ab Version 1.0.1)
+# =============================================================================
+#
+# Diese Karte wird automatisch mit der Integration mitgeliefert und
+# registriert sich selbst - es ist KEINE manuelle Lovelace-Ressource
+# nötig (siehe __init__.py: add_extra_js_url). Einfach Home Assistant
+# einmal neu starten, nachdem die Integration installiert/aktualisiert
+# wurde, dann steht der Kartentyp "custom:fritzbox-anrufe-card" zur
+# Verfügung.
+#
+# Passe die vier Entity-IDs unten an deine tatsächlichen Sensor-Namen an
+# (Einstellungen -> Geräte & Dienste -> Entitäten -> nach "Anrufe" suchen).
+#
+# Funktionsweise:
+# - Oben erscheint eine Icon-Leiste: Alle / Eingehend / Ausgehend / Verpasst.
+#   Klick auf ein Icon filtert die Liste entsprechend.
+# - Standardansicht ("Alle") zeigt die neuesten Anrufe aller drei Typen
+#   gemischt, sortiert nach Datum, begrenzt auf "max_rows" Zeilen.
+# - Findet gerade ein Gespräch statt (Live-Sensor != "idle"), erscheint
+#   oberhalb der Icon-Leiste ein hervorgehobenes Banner mit den Live-Daten.
+# - Die Karte ist responsiv: auf schmalen Bildschirmen (Smartphone) werden
+#   Tab-Beschriftungen und die Geräte-Spalte automatisch ausgeblendet,
+#   die Icon-Leiste und die wichtigsten Angaben (Name, Nummer, Zeit) bleiben
+#   aber immer sichtbar.
+
+type: custom:fritzbox-anrufe-card
+title: FRITZ!Box Anrufe
+entity_live: sensor.REPLACE_ME_call_monitor
+entity_eingehend: sensor.REPLACE_ME_eingehende_anrufe
+entity_ausgehend: sensor.REPLACE_ME_ausgehende_anrufe
+entity_verpasst: sensor.REPLACE_ME_verpasste_anrufe
+max_rows: 10
