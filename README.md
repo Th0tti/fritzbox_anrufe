@@ -38,11 +38,11 @@ mitgelieferte Dashboard-Karte.
   Ausgehend, Verpasst, Anrufbeantworter) und einzeln zuschaltbare Spalten
   (Name, Nummer, eigene Rufnummer, Gerät, Dauer, Datum, VIP) lassen sich
   ohne YAML einstellen.
-- **Experimentell:** Anrufbeantworter-Sensor mit Nachrichtenliste und
-  abspielbaren Sprachnachrichten direkt im Dashboard (siehe
-  [Bekannte Einschränkungen](#bekannte-einschränkungen) - bislang nicht an
-  echter Hardware getestet), als ein-/ausblendbare Kategorie innerhalb der
-  gleichen Karte.
+- **Experimentell:** Anrufbeantworter-Sensor mit Nachrichtenliste (an echter
+  Hardware bestätigt funktionsfähig) und abspielbaren Sprachnachrichten
+  direkt im Dashboard (siehe [Bekannte Einschränkungen](#bekannte-einschränkungen)),
+  als 5. Symbol/Tab in der Kartenkopfzeile - nicht als Bereich unterhalb der
+  Anrufliste.
 - Alternative: einfache YAML-Tabellenkarte auf Basis von `flex-table-card`
   (siehe [`examples/dashboard_flex_table.yaml`](examples/dashboard_flex_table.yaml)).
 
@@ -171,21 +171,24 @@ unten).
 
 Funktionen:
 
-- Icon-Leiste oben zum Filtern der Liste per Klick - welche Tabs
-  (Alle/Gesamt, Eingehend, Ausgehend, Verpasst) überhaupt erscheinen, ist
-  einzeln konfigurierbar (siehe **Kategorien** unten). Ist nach dem
-  Ausblenden nur noch eine Kategorie übrig, entfällt die Leiste ganz.
+- Icon-Leiste oben zum Filtern per Klick - fünf mögliche Symbole: Alle/
+  Gesamt, Eingehend, Ausgehend, Verpasst und (als 5. Symbol)
+  **Anrufbeantworter**. Welche davon überhaupt erscheinen, ist einzeln
+  konfigurierbar (siehe **Kategorien** unten). Ist nach dem Ausblenden nur
+  noch eine Kategorie übrig, entfällt die Leiste ganz.
 - Kategorie "Alle"/"Gesamt" zeigt die neuesten Anrufe aller aktivierten
   Anruftypen gemischt (sortiert nach Datum), begrenzt auf `max_rows` Zeilen
-  (Standard: 10).
+  (Standard: 10). Anrufbeantworter-Nachrichten zählen NICHT zu "Alle" - sie
+  erscheinen ausschließlich im eigenen Anrufbeantworter-Tab.
 - Findet gerade ein Gespräch statt (Live-Sensor ≠ "idle"), erscheint
   oberhalb der Icon-Leiste automatisch ein hervorgehobenes Live-Banner.
-- **Experimentell:** Ist ein Anrufbeantworter-Sensor eingetragen und die
-  Kategorie aktiviert, erscheint unterhalb der Anrufliste ein eigener
-  "Anrufbeantworter"-Bereich mit einer Nachrichtenliste
-  (Name/Nummer/Zeitpunkt/Dauer, neue Nachrichten farblich markiert) sowie
-  einem "Abspielen"-Button pro Nachricht - siehe
-  [Wiedergabe der Anrufbeantworter-Nachrichten](#wiedergabe-der-anrufbeantworter-nachrichten)
+- **Experimentell:** Klick auf das Anrufbeantworter-Symbol (nur sichtbar,
+  wenn ein Anrufbeantworter-Sensor eingetragen ist) wechselt den
+  Karteninhalt komplett zur Nachrichtenliste
+  (Name/Nummer/Zeitpunkt/Dauer, neue Nachrichten farblich markiert) samt
+  "Abspielen"-Button pro Nachricht - genau wie bei den Anruf-Tabs ersetzt
+  das die Anrufliste, es erscheint kein zusätzlicher Bereich darunter.
+  Siehe [Wiedergabe der Anrufbeantworter-Nachrichten](#wiedergabe-der-anrufbeantworter-nachrichten)
   unten für Details, wie das Abspielen technisch funktioniert.
 - Responsives Layout: auf schmalen Bildschirmen (Smartphone) werden
   Tab-Beschriftungen und die Geräte-Spalte ausgeblendet, Name/Nummer/Zeit
@@ -226,11 +229,12 @@ Entity-IDs findest du unter Einstellungen → Geräte & Dienste → Entitäten
 
 **Kategorien:** Fünf Schalter (`show_alle`, `show_eingehend`,
 `show_ausgehend`, `show_verpasst`, `show_anrufbeantworter`) blenden ganze
-Kategorien ein oder aus - unabhängig davon, ob eine Entity dafür konfiguriert
-ist. Eine deaktivierte Kategorie verschwindet aus der Icon-Leiste und wird
-auch aus der "Alle"/"Gesamt"-Sammelansicht herausgerechnet; der
-Anrufbeantworter-Bereich verschwindet entsprechend komplett, wenn
-`show_anrufbeantworter` auf `false` steht.
+Kategorien/Tabs ein oder aus. Bei den vier Anruf-Kategorien reicht dafür der
+Schalter allein; der Anrufbeantworter-Tab braucht zusätzlich einen
+konfigurierten `entity_voicemail` - ohne Sensor bleibt er auch bei
+`show_anrufbeantworter: true` ausgeblendet, da es nichts anzuzeigen gäbe.
+Eine deaktivierte Anruf-Kategorie verschwindet aus der Icon-Leiste und wird
+auch aus der "Alle"/"Gesamt"-Sammelansicht herausgerechnet.
 
 **Spalten:** Sieben weitere Schalter (`show_name`, `show_number`,
 `show_own_number`, `show_device`, `show_duration`, `show_date`, `show_vip`)
@@ -293,23 +297,28 @@ Die Entitäten selbst haben bereits passende Icons (`mdi:phone`,
   entity_id erhalten, bis die Entity manuell gelöscht und neu angelegt wird
   - das ist bewusstes Home-Assistant-Verhalten, keine Einschränkung dieser
   Integration.
-- **Anrufbeantworter-Sensor und -Wiedergabe sind experimentell und bislang
-  nicht an einer echten FRITZ!Box getestet.** Die Integration nutzt dafür
-  die TR-064-Aktion `X_AVM-DE_TAM1`/`GetMessageList`; AVMs eigene
-  Dokumentation und Drittquellen sind sich uneinig, ob der zurückgegebene
-  URL-Parameter `NewURL` oder `NewMessageListURL` heißt - die Integration
-  prüft beides. Funktioniert der Sensor auf deiner FRITZ!Box nicht (0
-  Nachrichten trotz vorhandener Sprachnachrichten, oder eine Warnung dazu im
-  Log), bitte als GitHub-Issue mit dem Log-Auszug melden, damit sich das an
-  die tatsächliche FRITZ!OS-Version anpassen lässt. Bewusst **nicht**
-  unterstützt: Faxnachrichten.
+- **Anrufbeantworter-Sensor und -Wiedergabe sind experimentell.** Die
+  Nachrichtenliste (Sensor `fritzbox_anrufe_anrufbeantworter`, TR-064-Aktion
+  `X_AVM-DE_TAM1`/`GetMessageList`) ist an echter Hardware bestätigt
+  funktionsfähig. Für die Wiedergabe liefert die Nachrichtenliste je
+  Nachricht einen `Path` in Richtung `download.lua?path=...` - dieser Weg
+  benutzt aber NICHT die TR-064-Anmeldung, sondern die klassische
+  FRITZ!Box-Weboberflächen-Sitzung (`sid`, per Challenge-Response-Login
+  gegen `/login_sid.lua`, wie sie z. B. auch AVMs eigenes
+  Smart-Home-HTTP-Interface verwendet). Die Integration meldet sich dafür
+  mit denselben Zugangsdaten automatisch zusätzlich darüber an
+  (`fritzconnection.core.fritzhttp.FritzHttp`) - ohne diesen zweiten
+  Login-Mechanismus schlägt der Download mit `404 Not Found` fehl (genau
+  dieses Verhalten wurde beim Testen beobachtet und ist damit behoben).
+  Funktioniert der Sensor oder die Wiedergabe auf deiner FRITZ!Box weiterhin
+  nicht, bitte mit dem Log-Auszug (`custom_components.fritzbox_anrufe.*`)
+  als GitHub-Issue melden. Bewusst **nicht** unterstützt: Faxnachrichten.
 - Die Anrufbeantworter-Wiedergabe läuft über einen serverseitigen,
   Home-Assistant-authentifizierten Proxy (die FRITZ!Box-Anmeldedaten
   verlassen dabei nie den Home-Assistant-Server); pro Wiedergabe wird die
   Audiodatei einmal komplett von der FRITZ!Box geladen, es gibt aktuell kein
-  Streaming/Caching. Aus demselben Grund ist in beiden Karten bewusst ein
-  "Abspielen"-Button statt eines direkt befüllten `<audio src="...">`
-  verbaut - siehe
+  Streaming/Caching. Aus demselben Grund ist bewusst ein "Abspielen"-Button
+  statt eines direkt befüllten `<audio src="...">` verbaut - siehe
   [Wiedergabe der Anrufbeantworter-Nachrichten](#wiedergabe-der-anrufbeantworter-nachrichten).
 
 ## Versionshistorie
@@ -322,9 +331,11 @@ Die Entitäten selbst haben bereits passende Icons (`mdi:phone`,
   der Erst-Einrichtung wählbar; mitgelieferte interaktive Dashboard-Karte
   `fritzbox-anrufe-card` (Icon-Filterleiste, Live-Banner, responsives
   Layout, grafischer Karten-Editor mit Sensor-/Zeilen-/Spaltenauswahl);
-  **experimenteller** Anrufbeantworter-Sensor mit im Dashboard direkt
-  abspielbaren Sprachnachrichten über einen authentifizierten Server-Proxy
-  und "Abspielen"-Button (`hass.fetchWithAuth`, siehe
+  **experimenteller** Anrufbeantworter-Sensor (an echter Hardware bestätigt
+  funktionsfähig) mit im Dashboard direkt abspielbaren Sprachnachrichten
+  über einen authentifizierten Server-Proxy und "Abspielen"-Button
+  (`hass.fetchWithAuth` plus eine zusätzliche FRITZ!Box-Weboberflächen-
+  Sitzung für den eigentlichen Download, siehe
   [Bekannte Einschränkungen](#bekannte-einschränkungen)); alle Kategorien
   (Alle/Gesamt, Eingehend, Ausgehend, Verpasst, Anrufbeantworter) einzeln
   ein-/ausblendbar auf derselben Karte; FRITZ!-Marken-Icon (`brand/`);
@@ -372,3 +383,14 @@ Die Entitäten selbst haben bereits passende Icons (`mdi:phone`,
   ist; ansonsten Home-Assistant-Log nach Warnungen von `fritzbox_anrufe` zur
   betroffenen Nachrichten-ID durchsuchen, sowie die Browser-Konsole (F12) auf
   Fehler beim Laden von `/api/fritzbox_anrufe/tam_media/...` prüfen.
+- **Log-Meldung `custom_components.fritzbox_anrufe.http`: "Fehler beim
+  Abrufen der Anrufbeantworter-Nachricht ...: 404 Client Error: Not Found
+  for url: .../download.lua?path=..."**: war vor Version 1.0.1
+  (Drittkorrektur) das erwartete Verhalten - der `Path` aus der
+  Nachrichtenliste benötigt eine separate FRITZ!Box-Weboberflächen-Sitzung
+  (`sid`), die zusätzlich zur TR-064-Anmeldung eingeholt werden muss, siehe
+  [Bekannte Einschränkungen](#bekannte-einschränkungen) - behoben. Tritt es
+  auf der neuesten Version weiterhin auf, bitte mit dem vollständigen
+  Log-Auszug als GitHub-Issue melden (kann z. B. an ein durch die
+  FRITZ!Box-Blockzeit nach mehreren Fehlversuchen gesperrtes Konto liegen -
+  in dem Fall kurz warten und erneut versuchen).
