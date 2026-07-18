@@ -33,6 +33,13 @@ mitgelieferte Dashboard-Karte.
 - Mitgelieferte, interaktive Dashboard-Karte (`fritzbox-anrufe-card`) mit
   Icon-Filterleiste, Live-Banner und responsivem Layout - keine manuelle
   Lovelace-Ressource nötig.
+- Grafischer Karten-Editor (Home-Assistant-Standardformular): Sensoren,
+  Zeilenanzahl und einzeln zuschaltbare Spalten (Name, Nummer, eigene
+  Rufnummer, Gerät, Dauer, Datum, VIP) lassen sich ohne YAML einstellen.
+- **Experimentell:** Anrufbeantworter-Sensor mit Nachrichtenliste und
+  abspielbaren Sprachnachrichten direkt im Dashboard (siehe
+  [Bekannte Einschränkungen](#bekannte-einschränkungen) - bislang nicht an
+  echter Hardware getestet).
 - Alternative: einfache YAML-Tabellenkarte auf Basis von `flex-table-card`
   (siehe [`examples/dashboard_flex_table.yaml`](examples/dashboard_flex_table.yaml)).
 
@@ -85,18 +92,20 @@ mitgelieferte Dashboard-Karte.
 
 ## Sensoren
 
-Pro konfiguriertem Telefonbuch/FRITZ!Box-Konto werden vier Sensoren angelegt:
+Pro konfiguriertem Telefonbuch/FRITZ!Box-Konto werden fünf Sensoren angelegt:
 
-| Sensor (Übersetzungsschlüssel) | Beschreibung | Zustand | Attribut `calls` |
+| Sensor (Übersetzungsschlüssel) | Beschreibung | Zustand | Attribut |
 | --- | --- | --- | --- |
 | `fritzbox_anrufe_live` | Live-Anrufmonitor | `idle` / `ringing` / `dialing` / `talking` | - (siehe Live-Attribute unten) |
-| `fritzbox_anrufe_eingehend` | Eingehende Anrufe | Anzahl gespeicherter Anrufe | Liste eingehender Anrufe |
-| `fritzbox_anrufe_ausgehend` | Ausgehende Anrufe | Anzahl gespeicherter Anrufe | Liste ausgehender Anrufe |
-| `fritzbox_anrufe_verpasst` | Verpasste Anrufe | Anzahl gespeicherter Anrufe | Liste verpasster Anrufe |
+| `fritzbox_anrufe_eingehend` | Eingehende Anrufe | Anzahl gespeicherter Anrufe | `calls`: Liste eingehender Anrufe |
+| `fritzbox_anrufe_ausgehend` | Ausgehende Anrufe | Anzahl gespeicherter Anrufe | `calls`: Liste ausgehender Anrufe |
+| `fritzbox_anrufe_verpasst` | Verpasste Anrufe | Anzahl gespeicherter Anrufe | `calls`: Liste verpasster Anrufe |
+| `fritzbox_anrufe_anrufbeantworter` **(experimentell)** | Anrufbeantworter-Nachrichten | Anzahl gespeicherter Nachrichten | `messages`: Liste der Sprachnachrichten |
 
-Die drei Verlaufs-Sensoren werden **nicht** über den Callmonitor befüllt,
-sondern alle 5 Minuten per TR-064 (`X_AVM-DE_OnTel`, `GetCallList`) von der
-FRITZ!Box abgerufen - der Callmonitor liefert nur Live-Ereignisse, keine
+Die Verlaufs- und der Anrufbeantworter-Sensor werden **nicht** über den
+Callmonitor befüllt, sondern alle 5 Minuten per TR-064 von der FRITZ!Box
+abgerufen (`X_AVM-DE_OnTel`/`GetCallList` bzw. `X_AVM-DE_TAM1`/
+`GetMessageList`) - der Callmonitor liefert nur Live-Ereignisse, keine
 Historie.
 
 Jeder Eintrag in `calls` enthält: `type`, `date` (ISO-Zeitstempel), `name`
@@ -106,21 +115,31 @@ Jeder Eintrag in `calls` enthält: `type`, `date` (ISO-Zeitstempel), `name`
 Der Live-Sensor liefert je nach Zustand u. a. `from`/`to`/`with`,
 `from_name`/`to_name`/`with_name`, `device`, `duration`, `vip`.
 
+Jeder Eintrag in `messages` (Anrufbeantworter, experimentell) enthält:
+`name`, `number`, `date` (ISO-Zeitstempel), `duration`, `new` (bool, ob die
+Nachricht noch nicht abgehört wurde), `vip`, sowie `media_url` - eine
+Home-Assistant-interne, authentifizierte URL, über die die Aufnahme direkt
+im Browser abgespielt werden kann (siehe [Dashboard-Karte](#dashboard-karte)).
+
 ### Entity-IDs
 
 Die Sensoren heißen intern `fritzbox_anrufe_live`/`_eingehend`/`_ausgehend`/
-`_verpasst` (Übersetzungsschlüssel, steuert Anzeigename und Icon). Der
-**angezeigte Name** folgt automatisch der Home-Assistant-Spracheinstellung
-(Deutsch/Englisch werden mitgeliefert). Die tatsächlich vergebene
-**technische entity_id** leitet sich dagegen wie bei jeder Home-Assistant-
-Integration aus Gerätename + Sensorname ab (z. B.
-`sensor.fritz_box_7590_eingehende_anrufe`) und wird **nicht** auf die
-englischen/deutschen Schlüsselwörter erzwungen - Home Assistant bietet dafür
-keinen unterstützten Mechanismus (die entity_id ist bewusst sprachneutral).
-Wer eine exakte entity_id wie `sensor.fritzbox_anrufe_eingehend` möchte, kann
-die Entity einmalig unter Einstellungen → Geräte & Dienste → Entitäten →
-Zahnrad-Symbol → "Entitäts-ID" manuell umbenennen; die Umbenennung bleibt
-dauerhaft erhalten.
+`_verpasst`/`_anrufbeantworter` (Übersetzungsschlüssel, steuert den je nach
+Home-Assistant-Spracheinstellung übersetzten Anzeigenamen sowie das Icon).
+
+Ab Version 1.0.1 wird zusätzlich die **technische entity_id** bei der
+Ersteinrichtung fest auf genau diese Werte reserviert, z. B.
+`sensor.fritzbox_anrufe_eingehend` (unabhängig von der Sprache, da
+entity_ids in Home Assistant grundsätzlich sprachneutral bleiben sollen).
+Das gilt für neu angelegte Entities; bereits vorhandene Entities aus einer
+älteren Installation behalten ihre bisherige entity_id (Home Assistant
+ändert bestehende entity_ids nie automatisch, um Automatisierungen nicht zu
+brechen). Wer bei einem Bestandssystem auf die neuen, festen IDs wechseln
+möchte: die fünf betroffenen Entities unter Einstellungen → Geräte &
+Dienste → Entitäten einmalig löschen und die Integration danach neu laden
+lassen - sie werden dann mit der festen entity_id neu angelegt. Bei mehr
+als einem FRITZ!Box-Konto bekommt das zweite/dritte Konto automatisch die
+Endungen `_2`/`_3` (normales Home-Assistant-Verhalten bei ID-Kollisionen).
 
 ## Einstellungen (Optionen)
 
@@ -152,6 +171,12 @@ Funktionen:
   (sortiert nach Datum), begrenzt auf `max_rows` Zeilen (Standard: 10).
 - Findet gerade ein Gespräch statt (Live-Sensor ≠ "idle"), erscheint
   oberhalb der Icon-Leiste automatisch ein hervorgehobenes Live-Banner.
+- **Experimentell:** Ist ein Anrufbeantworter-Sensor eingetragen, erscheint
+  unterhalb der Anrufliste ein eigener "Anrufbeantworter"-Bereich mit einer
+  Nachrichtenliste (Name/Nummer/Zeitpunkt/Dauer, neue Nachrichten farblich
+  markiert) sowie einem `<audio>`-Player pro Nachricht zum direkten
+  Abspielen im Dashboard - siehe den Hinweis dazu unter
+  [Bekannte Einschränkungen](#bekannte-einschränkungen).
 - Responsives Layout: auf schmalen Bildschirmen (Smartphone) werden
   Tab-Beschriftungen und die Geräte-Spalte ausgeblendet, Name/Nummer/Zeit
   bleiben immer sichtbar.
@@ -165,12 +190,26 @@ entity_live: sensor.fritz_box_7590_call_monitor
 entity_eingehend: sensor.fritz_box_7590_eingehende_anrufe
 entity_ausgehend: sensor.fritz_box_7590_ausgehende_anrufe
 entity_verpasst: sensor.fritz_box_7590_verpasste_anrufe
+entity_voicemail: sensor.fritz_box_7590_anrufbeantworter  # optional, experimentell
 max_rows: 10
+show_name: true
+show_number: true
+show_own_number: false
+show_device: true
+show_duration: true
+show_date: true
+show_vip: true
 ```
 
-Die Karte wird derzeit nur per YAML konfiguriert (kein grafischer
-Karten-Editor); die tatsächlichen Entity-IDs findest du unter Einstellungen
-→ Geräte & Dienste → Entitäten (Suche nach "Anrufe"/"Call monitor").
+**Grafischer Editor:** Statt die Karte per YAML zu konfigurieren, kann sie
+über die normale Lovelace-Karten-Auswahl bearbeitet werden ("Karte
+bearbeiten" → es öffnet sich automatisch ein Home-Assistant-Standardformular
+statt des YAML-Editors). Dort lassen sich Titel, alle fünf Sensoren sowie
+die Zeilenanzahl per Eingabefeld/Entity-Picker setzen und jede der sieben
+Spalten (Name, Nummer, eigene Rufnummer, Gerät, Dauer, Datum, VIP) einzeln
+per Schalter ein-/ausblenden. Die tatsächlichen Entity-IDs findest du unter
+Einstellungen → Geräte & Dienste → Entitäten (Suche nach
+"Anrufe"/"Call monitor"/"Anrufbeantworter").
 
 ### Variante 2: flex-table-card (YAML, spaltenweise ein-/ausblendbar)
 
@@ -195,8 +234,8 @@ Version ersetzen (z. B. von
 [home-assistant.io/integrations/fritzbox_callmonitor](https://www.home-assistant.io/integrations/fritzbox_callmonitor/)).
 
 Die Entitäten selbst haben bereits passende Icons (`mdi:phone`,
-`mdi:phone-incoming`, `mdi:phone-outgoing`, `mdi:phone-missed`, siehe
-`icons.json`).
+`mdi:phone-incoming`, `mdi:phone-outgoing`, `mdi:phone-missed`,
+`mdi:voicemail`, siehe `icons.json`).
 
 ## Bekannte Einschränkungen
 
@@ -210,21 +249,43 @@ Die Entitäten selbst haben bereits passende Icons (`mdi:phone`,
   als 90 Tage zurückblicken; ein auf "Anzahl" eingestellter Sensor zeigt
   weniger als den konfigurierten Wert, falls es innerhalb dieser 90 Tage
   schlicht nicht genug Anrufe dieses Typs gab.
-- Die technische entity_id folgt nicht automatisch der Sprachumschaltung
-  (siehe [Entity-IDs](#entity-ids) oben) - das ist bewusstes
-  Home-Assistant-Verhalten, keine Einschränkung dieser Integration.
-- Kein grafischer Konfigurations-Editor für die Dashboard-Karte (nur YAML).
+- Die feste entity_id (siehe [Entity-IDs](#entity-ids) oben) gilt nur für
+  neu angelegte Entities; bei Bestandssystemen bleibt die bisherige
+  entity_id erhalten, bis die Entity manuell gelöscht und neu angelegt wird
+  - das ist bewusstes Home-Assistant-Verhalten, keine Einschränkung dieser
+  Integration.
+- **Anrufbeantworter-Sensor und -Wiedergabe sind experimentell und bislang
+  nicht an einer echten FRITZ!Box getestet.** Die Integration nutzt dafür
+  die TR-064-Aktion `X_AVM-DE_TAM1`/`GetMessageList`; AVMs eigene
+  Dokumentation und Drittquellen sind sich uneinig, ob der zurückgegebene
+  URL-Parameter `NewURL` oder `NewMessageListURL` heißt - die Integration
+  prüft beides. Funktioniert der Sensor auf deiner FRITZ!Box nicht (0
+  Nachrichten trotz vorhandener Sprachnachrichten, oder eine Warnung dazu im
+  Log), bitte als GitHub-Issue mit dem Log-Auszug melden, damit sich das an
+  die tatsächliche FRITZ!OS-Version anpassen lässt. Bewusst **nicht**
+  unterstützt: Faxnachrichten.
+- Die Anrufbeantworter-Wiedergabe läuft über einen serverseitigen,
+  Home-Assistant-authentifizierten Proxy (die FRITZ!Box-Anmeldedaten
+  verlassen dabei nie den Home-Assistant-Server); pro Wiedergabe wird die
+  Audiodatei einmal komplett von der FRITZ!Box geladen, es gibt aktuell kein
+  Streaming/Caching.
 
 ## Versionshistorie
 
-- **1.0.1**: Vier separate Sensoren (`_live`/`_eingehend`/`_ausgehend`/
-  `_verpasst`) mit sprachabhängigem Anzeigenamen (Deutsch/Englisch); je
-  Sensor unabhängig einstellbare Verlaufstiefe (Anzahl-Dropdown mit festen
-  Presets oder Tage), bereits bei der Erst-Einrichtung wählbar; mitgelieferte
-  interaktive Dashboard-Karte `fritzbox-anrufe-card` (Icon-Filterleiste,
-  Live-Banner, responsives Layout); FRITZ!-Marken-Icon (`brand/`); Übersetzungsdateien
-  (`translations/`) ergänzt, die für Home-Assistant-Custom-Integrations
-  zwingend nötig sind, damit übersetzte Entitätsnamen überhaupt greifen.
+- **1.0.1**: Fünf separate Sensoren (`_live`/`_eingehend`/`_ausgehend`/
+  `_verpasst`/`_anrufbeantworter`) mit sprachabhängigem Anzeigenamen
+  (Deutsch/Englisch) und fest reservierter, sprachneutraler entity_id für
+  neu angelegte Entities; je Verlaufs-Sensor unabhängig einstellbare
+  Verlaufstiefe (Anzahl-Dropdown mit festen Presets oder Tage), bereits bei
+  der Erst-Einrichtung wählbar; mitgelieferte interaktive Dashboard-Karte
+  `fritzbox-anrufe-card` (Icon-Filterleiste, Live-Banner, responsives
+  Layout, grafischer Karten-Editor mit Sensor-/Zeilen-/Spaltenauswahl);
+  **experimenteller** Anrufbeantworter-Sensor mit im Dashboard direkt
+  abspielbaren Sprachnachrichten (authentifizierter Server-Proxy, siehe
+  [Bekannte Einschränkungen](#bekannte-einschränkungen)); FRITZ!-Marken-Icon
+  (`brand/`); Übersetzungsdateien (`translations/`) ergänzt, die für
+  Home-Assistant-Custom-Integrations zwingend nötig sind, damit übersetzte
+  Entitätsnamen überhaupt greifen.
 - **1.0.0**: Umbenennung von `fritzbox_callmonitor` auf `fritzbox_anrufe`;
   drei neue Verlaufs-Sensoren für eingehende/ausgehende/verpasste Anrufe
   (TR-064-basiert) mit gemeinsam konfigurierbarer Verlaufstiefe
@@ -247,3 +308,11 @@ Die Entitäten selbst haben bereits passende Icons (`mdi:phone`,
 - **Dashboard-Karte "fritzbox-anrufe-card" wird nicht gefunden**: Home
   Assistant nach der Installation/dem Update vollständig neu gestartet?
   Andernfalls Browser-Cache leeren (Strg+Shift+R).
+- **Anrufbeantworter-Sensor zeigt immer 0 Nachrichten / Warnung im Log zu
+  `GetMessageList`**: experimentelle Funktion, siehe
+  [Bekannte Einschränkungen](#bekannte-einschränkungen) - bitte mit dem
+  Log-Auszug als GitHub-Issue melden.
+- **Sprachnachricht lässt sich in der Karte nicht abspielen**: prüfen, ob
+  die Kontoberechtigung "Sprachnachrichten, Faxnachrichten, FRITZ!App Fon
+  und Anrufliste" gesetzt ist; ansonsten Home-Assistant-Log nach Warnungen
+  von `fritzbox_anrufe` zur betroffenen Nachrichten-ID durchsuchen.
