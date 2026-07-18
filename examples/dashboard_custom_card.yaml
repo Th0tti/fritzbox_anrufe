@@ -22,22 +22,24 @@
 #
 # Funktionsweise:
 # - Oben erscheint eine Icon-Leiste mit den aktivierten Kategorien (Alle /
-#   Eingehend / Ausgehend / Verpasst). Klick auf ein Icon filtert die Liste
-#   entsprechend. Über show_alle/show_eingehend/show_ausgehend/show_verpasst
-#   lässt sich jede Kategorie einzeln aus der Leiste UND aus der
-#   "Alle"-Sammelansicht herausnehmen (z. B. um "Verpasst" nirgends
-#   anzuzeigen); bleibt nur eine Kategorie übrig, entfällt die Leiste ganz.
+#   Eingehend / Ausgehend / Verpasst / Anrufbeantworter als 5. Symbol).
+#   Klick auf ein Icon wechselt den kompletten Karteninhalt entsprechend -
+#   der Anrufbeantworter ist ein Tab wie jeder andere, KEIN zusätzlicher
+#   Bereich unterhalb der Anrufliste. Über show_alle/show_eingehend/
+#   show_ausgehend/show_verpasst/show_anrufbeantworter lässt sich jede
+#   Kategorie einzeln aus der Leiste herausnehmen; bleibt nur eine übrig,
+#   entfällt die Leiste ganz. Der Anrufbeantworter-Tab erscheint zusätzlich
+#   nur, wenn entity_voicemail gesetzt ist.
 # - Kategorie "Alle" zeigt die neuesten Anrufe aller aktivierten Anruftypen
 #   gemischt, sortiert nach Datum, begrenzt auf "max_rows" Zeilen.
+#   Anrufbeantworter-Nachrichten zählen NICHT zu "Alle".
 # - Findet gerade ein Gespräch statt (Live-Sensor != "idle"), erscheint
 #   oberhalb der Icon-Leiste ein hervorgehobenes Banner mit den Live-Daten.
-# - Ist entity_voicemail gesetzt UND show_anrufbeantworter aktiviert,
-#   erscheint unterhalb der Anrufliste ein "Anrufbeantworter"-Bereich mit
-#   Nachrichtenliste und einem "Abspielen"-Button pro Nachricht
-#   (EXPERIMENTELL, siehe README.md -> "Bekannte Einschränkungen"). Der
-#   Button lädt die Aufnahme erst bei Klick über hass.fetchWithAuth() - ein
-#   direkter <audio src> würde an der Home-Assistant-Authentifizierung
-#   scheitern.
+# - Im Anrufbeantworter-Tab (EXPERIMENTELL, siehe README.md -> "Bekannte
+#   Einschränkungen") erscheint statt der Anrufliste die Nachrichtenliste
+#   mit einem "Abspielen"-Button pro Nachricht. Der Button lädt die
+#   Aufnahme erst bei Klick über hass.fetchWithAuth() - ein direkter
+#   <audio src> würde an der Home-Assistant-Authentifizierung scheitern.
 # - Über show_name/show_number/show_own_number/show_device/show_duration/
 #   show_date/show_vip lässt sich jede Spalte der Anrufliste einzeln
 #   ein-/ausblenden (Standard: alle an außer show_own_number).
