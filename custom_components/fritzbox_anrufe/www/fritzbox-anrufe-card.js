@@ -3,19 +3,21 @@
  * ---------------------
  * Custom Lovelace card for the fritzbox_anrufe Home Assistant integration.
  *
- * Shows a filterable list of incoming/outgoing/missed FRITZ!Box calls with
- * an icon bar (Alle / Eingehend / Ausgehend / Verpasst) to switch between
- * them, a live-call banner above the icons whenever a call is currently
- * ringing/dialing/ongoing, and an optional Anrufbeantworter (answering
- * machine) section with playback. Responsive: the layout stays legible on
- * both a phone-width and a desktop-width dashboard.
+ * Shows a filterable list of incoming/outgoing/missed FRITZ!Box calls plus
+ * Anrufbeantworter (answering machine) messages, switched via a 5-icon
+ * header bar (Alle / Eingehend / Ausgehend / Verpasst / Anrufbeantworter -
+ * Anrufbeantworter is a tab like the others, not a separate section below
+ * the call list), with a live-call banner above the icons whenever a call
+ * is currently ringing/dialing/ongoing. Responsive: the layout stays
+ * legible on both a phone-width and a desktop-width dashboard.
  *
  * Every category - Alle/Gesamt, Eingehend, Ausgehend, Verpasst and
  * Anrufbeantworter - can be individually shown or hidden via the graphical
- * config editor (or the matching show_* YAML key), independently of which
- * entities are configured. There is deliberately only ONE card type: a
- * dedicated, separate Anrufbeantworter card was considered but dropped in
- * favor of these per-category toggles on this single card.
+ * config editor (or the matching show_* YAML key); the Anrufbeantworter tab
+ * additionally only appears once entity_voicemail is configured. There is
+ * deliberately only ONE card type: a dedicated, separate Anrufbeantworter
+ * card was considered but dropped in favor of these per-category toggles on
+ * this single card.
  *
  * Includes a graphical config editor (via getConfigElement) to pick the
  * entities, which categories are shown, the row count, and which call
@@ -60,13 +62,17 @@
  */
 
 const FILTER_ALL = "alle";
-const FILTER_ORDER = ["alle", "eingehend", "ausgehend", "verpasst"];
+const FILTER_VOICEMAIL = "anrufbeantworter";
+// "anrufbeantworter" is a tab like any other (5th icon in the header row),
+// not a section rendered underneath the call list - see _renderMainContent().
+const FILTER_ORDER = ["alle", "eingehend", "ausgehend", "verpasst", FILTER_VOICEMAIL];
 
 const FILTER_META = {
   alle: { icon: "mdi:phone-log", label: "Alle" },
   eingehend: { icon: "mdi:phone-incoming", label: "Eingehend" },
   ausgehend: { icon: "mdi:phone-outgoing", label: "Ausgehend" },
   verpasst: { icon: "mdi:phone-missed", label: "Verpasst" },
+  anrufbeantworter: { icon: "mdi:voicemail", label: "Anrufbeantworter" },
 };
 
 const LIVE_STATE_LABELS = {
@@ -80,8 +86,10 @@ const LIVE_INACTIVE_STATES = new Set(["idle", "unavailable", "unknown", ""]);
 const CONFIG_DEFAULTS = {
   title: "FRITZ!Box Anrufe",
   max_rows: 10,
-  // Kategorien (Tabs + Anrufbeantworter-Bereich) einzeln ein-/ausblendbar,
-  // unabhängig davon, ob die zugehörige Entity konfiguriert ist.
+  // Kategorien/Tabs (Alle/Gesamt, Eingehend, Ausgehend, Verpasst,
+  // Anrufbeantworter) einzeln ein-/ausblendbar. show_anrufbeantworter
+  // wirkt zusätzlich zur Voraussetzung, dass entity_voicemail gesetzt ist -
+  // siehe _visibleFilterTypes().
   show_alle: true,
   show_eingehend: true,
   show_ausgehend: true,
@@ -353,10 +361,16 @@ class FritzboxAnrufeCard extends HTMLElement {
     return this._hass.states[entityId];
   }
 
-  // Kategorien (Tabs), die laut Konfiguration angezeigt werden sollen -
-  // unabhängig davon, ob eine Entity dafür konfiguriert ist.
+  // Kategorien (Tabs), die laut Konfiguration angezeigt werden sollen. Für
+  // Anruf-Kategorien reicht der show_*-Schalter allein; die
+  // Anrufbeantworter-Kategorie braucht zusätzlich einen konfigurierten
+  // entity_voicemail - ohne Sensor gibt es dort nichts zu zeigen.
   _visibleFilterTypes() {
-    return FILTER_ORDER.filter((type) => this._config[`show_${type}`] !== false);
+    return FILTER_ORDER.filter((type) => {
+      if (this._config[`show_${type}`] === false) return false;
+      if (type === FILTER_VOICEMAIL && !this._config.entity_voicemail) return false;
+      return true;
+    });
   }
 
   // Anruf-Typen (ohne "alle"), die in der "Alle"-Sammelansicht enthalten
@@ -474,6 +488,17 @@ class FritzboxAnrufeCard extends HTMLElement {
     `;
   }
 
+  // Anrufbeantworter ist ein Tab wie jeder andere (5. Symbol in der
+  // Kopfzeile, siehe FILTER_ORDER) - kein Abschnitt unterhalb der
+  // Anrufliste. Je nach aktivem Tab zeigt der Kartenkörper entweder die
+  // Anrufliste oder die Anrufbeantworter-Nachrichten, nie beides.
+  _renderMainContent() {
+    if (this._activeFilter === FILTER_VOICEMAIL) {
+      return this._renderVoicemailRows();
+    }
+    return this._renderRows();
+  }
+
   _renderRows() {
     const calls = this._visibleCalls();
     const cfg = this._config;
@@ -510,17 +535,9 @@ class FritzboxAnrufeCard extends HTMLElement {
     `;
   }
 
-  _renderVoicemailSection() {
-    if (!this._config.entity_voicemail || this._config.show_anrufbeantworter === false) return "";
-    return `
-      <div class="voicemail-section">
-        <div class="voicemail-header">
-          <ha-icon icon="mdi:voicemail"></ha-icon>
-          <span>Anrufbeantworter</span>
-        </div>
-        ${renderVoicemailRows(this._voicemails())}
-      </div>
-    `;
+  _renderVoicemailRows() {
+    const maxRows = Number(this._config.max_rows) || 10;
+    return renderVoicemailRows(this._voicemails(), { maxRows });
   }
 
   _revokeObjectUrls() {
@@ -548,8 +565,7 @@ class FritzboxAnrufeCard extends HTMLElement {
         <div class="card-content">
           ${this._renderLiveBanner()}
           ${this._renderTabs()}
-          ${this._renderRows()}
-          ${this._renderVoicemailSection()}
+          ${this._renderMainContent()}
         </div>
       </ha-card>
     `;
@@ -668,19 +684,6 @@ class FritzboxAnrufeCard extends HTMLElement {
         text-align: right;
       }
 
-      .voicemail-section {
-        margin-top: 16px;
-        padding-top: 12px;
-        border-top: 1px solid var(--divider-color, #e0e0e0);
-      }
-      .voicemail-header {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 8px;
-        font-weight: 600;
-        color: var(--primary-text-color);
-      }
       ${VOICEMAIL_ROWS_STYLES}
 
       /* --- Responsive: schmale Ansicht (Smartphone) --- */
