@@ -40,26 +40,52 @@ MANUFACTURER: Final = "FRITZ!"
 PLATFORMS = [Platform.SENSOR]
 
 # --- Anruflisten-Verlaufssensoren (fritzbox_anrufe_eingehend/ausgehend/verpasst) ---
+# sowie der Live-Callmonitor-Sensor (fritzbox_anrufe_live). Diese Suffixe
+# werden nur für den *translation_key* (übersetzter Anzeigename + Icon)
+# verwendet, nicht für die technische entity_id - siehe Kommentar in
+# sensor.py für Details, warum Home Assistant das nicht anders unterstützt.
 
 CALL_TYPE_INCOMING = "eingehend"
 CALL_TYPE_OUTGOING = "ausgehend"
 CALL_TYPE_MISSED = "verpasst"
+CALL_TYPE_LIVE = "live"
 
 CALL_TYPES = (CALL_TYPE_INCOMING, CALL_TYPE_OUTGOING, CALL_TYPE_MISSED)
 
-# Konfigurierbare Verlaufstiefe der Anruflisten-Sensoren (Options-Flow)
-CONF_CALL_LOG_LIMIT_TYPE = "call_log_limit_type"
-CONF_CALL_LOG_COUNT = "call_log_count"
-CONF_CALL_LOG_DAYS = "call_log_days"
-
+# Konfigurierbare Verlaufstiefe der drei Anruflisten-Sensoren - jeder Typ
+# (eingehend/ausgehend/verpasst) hat seine EIGENEN, unabhängig einstellbaren
+# Optionen (Options-Flow UND bereits bei der Erst-Einrichtung).
 CALL_LOG_LIMIT_COUNT: Final = "count"
 CALL_LOG_LIMIT_DAYS: Final = "days"
 
 DEFAULT_CALL_LOG_LIMIT_TYPE = CALL_LOG_LIMIT_COUNT
-DEFAULT_CALL_LOG_COUNT = 20
+DEFAULT_CALL_LOG_COUNT = 10
 DEFAULT_CALL_LOG_DAYS = 7
 
-MIN_CALL_LOG_COUNT = 1
-MAX_CALL_LOG_COUNT = 200
 MIN_CALL_LOG_DAYS = 1
 MAX_CALL_LOG_DAYS = 90
+
+# Feste Auswahlwerte für das "Anzahl"-Dropdown (pro Sensor).
+CALL_LOG_COUNT_PRESETS: Final[tuple[int, ...]] = (5, 10, 20, 50, 100, 200)
+
+# Wie viele Tage Rohdaten (alle Anruftypen gemischt) pro Aktualisierung von
+# der FRITZ!Box geladen werden, bevor sie clientseitig je Sensor nach dessen
+# eigener Einstellung (Anzahl oder Tage) gefiltert werden. Die FRITZ!Box/
+# fritzconnection-API kennt keinen "letzte N Anrufe von Typ X"-Parameter,
+# sondern begrenzt immer den gemischten Gesamtabruf - siehe call_log.py.
+SHARED_CALL_LOG_FETCH_DAYS: Final = MAX_CALL_LOG_DAYS
+
+
+def conf_call_log_limit_type(call_type: str) -> str:
+    """Options-Key: Anzahl- oder Tage-Modus für einen Anruflisten-Sensor."""
+    return f"call_log_limit_type_{call_type}"
+
+
+def conf_call_log_count(call_type: str) -> str:
+    """Options-Key: max. Anzahl Einträge für einen Anruflisten-Sensor."""
+    return f"call_log_count_{call_type}"
+
+
+def conf_call_log_days(call_type: str) -> str:
+    """Options-Key: Tage-Fenster für einen Anruflisten-Sensor."""
+    return f"call_log_days_{call_type}"

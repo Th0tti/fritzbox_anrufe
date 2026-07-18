@@ -1,7 +1,7 @@
 {
   "entity": {
     "sensor": {
-      "fritzbox_anrufe": {
+      "fritzbox_anrufe_live": {
         "default": "mdi:phone",
         "state": {
           "dialing": "mdi:phone-outgoing",

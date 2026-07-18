@@ -24,6 +24,7 @@ from .base import Contact, FritzBoxPhonebook
 from .call_log import FritzCallLogCoordinator
 from .const import (
     ATTR_PREFIXES,
+    CALL_TYPE_LIVE,
     CALL_TYPE_OUTGOING,
     CALL_TYPES,
     CONF_PHONEBOOK,
@@ -108,7 +109,7 @@ class FritzBoxCallSensor(SensorEntity):
     """Implementation of a Fritz!Box call monitor."""
 
     _attr_has_entity_name = True
-    _attr_translation_key = DOMAIN
+    _attr_translation_key = f"{DOMAIN}_{CALL_TYPE_LIVE}"
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = list(CallState)
 

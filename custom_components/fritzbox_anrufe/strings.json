@@ -1,15 +1,15 @@
 {
   "config": {
     "abort": {
-      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+      "already_configured": "Device is already configured",
       "insufficient_permissions": "User has insufficient permissions to access FRITZ!Box settings and its phonebooks.",
-      "no_devices_found": "[%key:common::config_flow::abort::no_devices_found%]",
-      "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
+      "no_devices_found": "No devices found on the network",
+      "reauth_successful": "Re-authentication was successful"
     },
     "error": {
-      "insufficient_permissions": "[%key:component::fritzbox_anrufe::config::abort::insufficient_permissions%]",
-      "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
-      "unknown": "[%key:common::config_flow::error::unknown%]"
+      "insufficient_permissions": "User has insufficient permissions to access FRITZ!Box settings and its phonebooks.",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
     },
     "flow_title": "{name}",
     "step": {
@@ -18,18 +18,33 @@
           "phonebook": "Phonebook"
         }
       },
+      "history": {
+        "title": "Call history depth",
+        "description": "Choose, for each of the three call-list sensors, whether it should be limited by a number of calls or by a number of days. You can change this again later under Settings -> Devices & Services -> FRITZ!Box Anrufe -> Configure.",
+        "data": {
+          "call_log_limit_type_eingehend": "Incoming calls: mode",
+          "call_log_count_eingehend": "Incoming calls: number of calls (if 'Number of calls' selected)",
+          "call_log_days_eingehend": "Incoming calls: number of days (if 'Number of days' selected)",
+          "call_log_limit_type_ausgehend": "Outgoing calls: mode",
+          "call_log_count_ausgehend": "Outgoing calls: number of calls (if 'Number of calls' selected)",
+          "call_log_days_ausgehend": "Outgoing calls: number of days (if 'Number of days' selected)",
+          "call_log_limit_type_verpasst": "Missed calls: mode",
+          "call_log_count_verpasst": "Missed calls: number of calls (if 'Number of calls' selected)",
+          "call_log_days_verpasst": "Missed calls: number of days (if 'Number of days' selected)"
+        }
+      },
       "reauth_confirm": {
         "data": {
-          "password": "[%key:common::config_flow::data::password%]",
-          "username": "[%key:common::config_flow::data::username%]"
+          "password": "Password",
+          "username": "Username"
         }
       },
       "user": {
         "data": {
-          "host": "[%key:common::config_flow::data::host%]",
-          "password": "[%key:common::config_flow::data::password%]",
-          "port": "[%key:common::config_flow::data::port%]",
-          "username": "[%key:common::config_flow::data::username%]"
+          "host": "Host",
+          "password": "Password",
+          "port": "Port",
+          "username": "Username"
         },
         "data_description": {
           "host": "The hostname or IP address of your FRITZ!Box router."
@@ -39,18 +54,18 @@
   },
   "entity": {
     "sensor": {
-      "fritzbox_anrufe": {
+      "fritzbox_anrufe_live": {
         "name": "Call monitor {phonebook_name}",
         "state": {
           "dialing": "Dialing",
-          "idle": "[%key:common::state::idle%]",
+          "idle": "Idle",
           "ringing": "Ringing",
           "talking": "Talking"
         },
         "state_attributes": {
           "accepted": { "name": "Accepted" },
           "closed": { "name": "Closed" },
-          "device": { "name": "[%key:common::config_flow::data::device%]" },
+          "device": { "name": "Device" },
           "duration": { "name": "Duration" },
           "from": { "name": "Caller number" },
           "from_name": { "name": "Caller name" },
@@ -71,21 +86,21 @@
         }
       },
       "fritzbox_anrufe_eingehend": {
-        "name": "Eingehende Anrufe {phonebook_name}",
+        "name": "Incoming calls {phonebook_name}",
         "state_attributes": {
-          "calls": { "name": "Anrufe" }
+          "calls": { "name": "Calls" }
         }
       },
       "fritzbox_anrufe_ausgehend": {
-        "name": "Ausgehende Anrufe {phonebook_name}",
+        "name": "Outgoing calls {phonebook_name}",
         "state_attributes": {
-          "calls": { "name": "Anrufe" }
+          "calls": { "name": "Calls" }
         }
       },
       "fritzbox_anrufe_verpasst": {
-        "name": "Verpasste Anrufe {phonebook_name}",
+        "name": "Missed calls {phonebook_name}",
         "state_attributes": {
-          "calls": { "name": "Anrufe" }
+          "calls": { "name": "Calls" }
         }
       }
     }
@@ -93,8 +108,8 @@
   "selector": {
     "call_log_limit_type": {
       "options": {
-        "count": "Anzahl Anrufe",
-        "days": "Anzahl Tage"
+        "count": "Number of calls",
+        "days": "Number of days"
       }
     }
   },
@@ -104,18 +119,24 @@
     },
     "step": {
       "init": {
+        "title": "Configure FRITZ!Box Anrufe",
         "data": {
           "prefixes": "Prefixes (comma-separated list)",
-          "call_log_limit_type": "Verlaufstiefe der Anruflisten-Sensoren",
-          "call_log_count": "Anzahl Anrufe (falls 'Anzahl Anrufe' gewählt)",
-          "call_log_days": "Anzahl Tage (falls 'Anzahl Tage' gewählt)"
+          "call_log_limit_type_eingehend": "Incoming calls: mode",
+          "call_log_count_eingehend": "Incoming calls: number of calls (if 'Number of calls' selected)",
+          "call_log_days_eingehend": "Incoming calls: number of days (if 'Number of days' selected)",
+          "call_log_limit_type_ausgehend": "Outgoing calls: mode",
+          "call_log_count_ausgehend": "Outgoing calls: number of calls (if 'Number of calls' selected)",
+          "call_log_days_ausgehend": "Outgoing calls: number of days (if 'Number of days' selected)",
+          "call_log_limit_type_verpasst": "Missed calls: mode",
+          "call_log_count_verpasst": "Missed calls: number of calls (if 'Number of calls' selected)",
+          "call_log_days_verpasst": "Missed calls: number of days (if 'Number of days' selected)"
         },
         "data_description": {
-          "call_log_limit_type": "Bestimmt, ob die Sensoren fritzbox_anrufe_eingehend/ausgehend/verpasst nach Anzahl oder nach Zeitraum begrenzt werden.",
-          "call_log_count": "Standard: 20 Anrufe.",
-          "call_log_days": "Standard: 7 Tage."
-        },
-        "title": "FRITZ!Box Anrufe konfigurieren"
+          "call_log_limit_type_eingehend": "Whether the incoming-calls sensor is limited by count or by time period.",
+          "call_log_limit_type_ausgehend": "Whether the outgoing-calls sensor is limited by count or by time period.",
+          "call_log_limit_type_verpasst": "Whether the missed-calls sensor is limited by count or by time period."
+        }
       }
     }
   }

@@ -24,11 +24,10 @@ from homeassistant.helpers import selector
 
 from .base import FritzBoxPhonebook
 from .const import (
+    CALL_LOG_COUNT_PRESETS,
     CALL_LOG_LIMIT_COUNT,
     CALL_LOG_LIMIT_DAYS,
-    CONF_CALL_LOG_COUNT,
-    CONF_CALL_LOG_DAYS,
-    CONF_CALL_LOG_LIMIT_TYPE,
+    CALL_TYPES,
     CONF_PHONEBOOK,
     CONF_PREFIXES,
     DEFAULT_CALL_LOG_COUNT,
@@ -41,11 +40,12 @@ from .const import (
     DOMAIN,
     FRITZ_ATTR_NAME,
     FRITZ_ATTR_SERIAL_NUMBER,
-    MAX_CALL_LOG_COUNT,
     MAX_CALL_LOG_DAYS,
-    MIN_CALL_LOG_COUNT,
     MIN_CALL_LOG_DAYS,
     SERIAL_NUMBER,
+    conf_call_log_count,
+    conf_call_log_days,
+    conf_call_log_limit_type,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,6 +71,61 @@ class ConnectResult(StrEnum):
     SUCCESS = "success"
 
 
+def _history_schema_dict(current_options: Mapping[str, Any]) -> dict[Any, Any]:
+    """Build the repeated (Modus/Anzahl/Tage) schema fields, one set per call type.
+
+    Shared between the config flow's own "history" step (asked once at
+    initial setup) and the options flow (so it can be changed again later,
+    independently for each of the three call-list sensors).
+    """
+    schema: dict[Any, Any] = {}
+    for call_type in CALL_TYPES:
+        schema[
+            vol.Optional(
+                conf_call_log_limit_type(call_type),
+                default=current_options.get(
+                    conf_call_log_limit_type(call_type), DEFAULT_CALL_LOG_LIMIT_TYPE
+                ),
+            )
+        ] = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[CALL_LOG_LIMIT_COUNT, CALL_LOG_LIMIT_DAYS],
+                translation_key="call_log_limit_type",
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        )
+        schema[
+            vol.Optional(
+                conf_call_log_count(call_type),
+                default=str(
+                    current_options.get(conf_call_log_count(call_type), DEFAULT_CALL_LOG_COUNT)
+                ),
+            )
+        ] = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[str(preset) for preset in CALL_LOG_COUNT_PRESETS],
+                mode=selector.SelectSelectorMode.DROPDOWN,
+            )
+        )
+        schema[
+            vol.Optional(
+                conf_call_log_days(call_type),
+                default=current_options.get(conf_call_log_days(call_type), DEFAULT_CALL_LOG_DAYS),
+            )
+        ] = vol.All(vol.Coerce(int), vol.Range(min=MIN_CALL_LOG_DAYS, max=MAX_CALL_LOG_DAYS))
+    return schema
+
+
+def _parse_history_input(user_input: Mapping[str, Any]) -> dict[str, Any]:
+    """Extract and coerce the per-call-type history fields from form input."""
+    parsed: dict[str, Any] = {}
+    for call_type in CALL_TYPES:
+        parsed[conf_call_log_limit_type(call_type)] = user_input[conf_call_log_limit_type(call_type)]
+        parsed[conf_call_log_count(call_type)] = int(user_input[conf_call_log_count(call_type)])
+        parsed[conf_call_log_days(call_type)] = int(user_input[conf_call_log_days(call_type)])
+    return parsed
+
+
 class FritzBoxCallMonitorConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a fritzbox_anrufe config flow."""
 
@@ -86,6 +141,7 @@ class FritzBoxCallMonitorConfigFlow(ConfigFlow, domain=DOMAIN):
     _phonebook_ids: list[int]
     _fritzbox_phonebook: FritzBoxPhonebook
     _serial_number: str
+    _history_options: dict[str, Any]
 
     def __init__(self) -> None:
         """Initialize flow."""
@@ -103,6 +159,7 @@ class FritzBoxCallMonitorConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_PHONEBOOK: self._phonebook_id,
                 SERIAL_NUMBER: self._serial_number,
             },
+            options=self._history_options,
         )
 
     def _try_connect(self) -> ConnectResult:
@@ -203,7 +260,7 @@ class FritzBoxCallMonitorConfigFlow(ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(f"{self._serial_number}-{self._phonebook_id}")
         self._abort_if_unique_id_configured()
 
-        return self._get_config_entry()
+        return await self.async_step_history()
 
     async def async_step_phonebook(
         self, user_input: dict[str, Any] | None = None
@@ -228,6 +285,26 @@ class FritzBoxCallMonitorConfigFlow(ConfigFlow, domain=DOMAIN):
         await self.async_set_unique_id(f"{self._serial_number}-{self._phonebook_id}")
         self._abort_if_unique_id_configured()
 
+        return await self.async_step_history()
+
+    async def async_step_history(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask, per call-list sensor, how much call history to keep.
+
+        Shown once during initial setup (in addition to being changeable
+        later via the options flow) so the retention depth for
+        fritzbox_anrufe_eingehend/ausgehend/verpasst can be picked from the
+        start instead of only defaulting to 10 calls each.
+        """
+        if user_input is None:
+            return self.async_show_form(
+                step_id="history",
+                data_schema=vol.Schema(_history_schema_dict({})),
+                errors={},
+            )
+
+        self._history_options = _parse_history_input(user_input)
         return self._get_config_entry()
 
     async def async_step_reauth(
@@ -310,46 +387,21 @@ class FritzBoxCallMonitorOptionsFlowHandler(OptionsFlowWithReload):
         return [prefix.strip() for prefix in prefixes.split(",")]
 
     def _get_option_schema(self) -> vol.Schema:
-        """Get the option schema for prefixes and the call-list history depth.
+        """Get the option schema for prefixes and each sensor's history depth.
 
-        Both a max. number of entries (``CONF_CALL_LOG_COUNT``) and a number
-        of days (``CONF_CALL_LOG_DAYS``) can be configured at the same time;
-        ``CONF_CALL_LOG_LIMIT_TYPE`` decides which of the two is actually
-        applied by the fritzbox_anrufe_eingehend/ausgehend/verpasst sensors.
+        Each of the three call-list sensors (fritzbox_anrufe_eingehend/
+        ausgehend/verpasst) has its own, independently configurable
+        Anzahl-oder-Tage setting - see :func:`_history_schema_dict`.
         """
         options = self.config_entry.options
-        return vol.Schema(
-            {
-                vol.Optional(
-                    CONF_PREFIXES,
-                    description={"suggested_value": options.get(CONF_PREFIXES)},
-                ): str,
-                vol.Optional(
-                    CONF_CALL_LOG_LIMIT_TYPE,
-                    default=options.get(
-                        CONF_CALL_LOG_LIMIT_TYPE, DEFAULT_CALL_LOG_LIMIT_TYPE
-                    ),
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[CALL_LOG_LIMIT_COUNT, CALL_LOG_LIMIT_DAYS],
-                        translation_key=CONF_CALL_LOG_LIMIT_TYPE,
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
-                ),
-                vol.Optional(
-                    CONF_CALL_LOG_COUNT,
-                    default=options.get(CONF_CALL_LOG_COUNT, DEFAULT_CALL_LOG_COUNT),
-                ): vol.All(
-                    vol.Coerce(int), vol.Range(min=MIN_CALL_LOG_COUNT, max=MAX_CALL_LOG_COUNT)
-                ),
-                vol.Optional(
-                    CONF_CALL_LOG_DAYS,
-                    default=options.get(CONF_CALL_LOG_DAYS, DEFAULT_CALL_LOG_DAYS),
-                ): vol.All(
-                    vol.Coerce(int), vol.Range(min=MIN_CALL_LOG_DAYS, max=MAX_CALL_LOG_DAYS)
-                ),
-            }
-        )
+        schema: dict[Any, Any] = {
+            vol.Optional(
+                CONF_PREFIXES,
+                description={"suggested_value": options.get(CONF_PREFIXES)},
+            ): str,
+        }
+        schema.update(_history_schema_dict(options))
+        return vol.Schema(schema)
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -378,8 +430,6 @@ class FritzBoxCallMonitorOptionsFlowHandler(OptionsFlowWithReload):
             title="",
             data={
                 CONF_PREFIXES: self._get_list_of_prefixes(prefixes),
-                CONF_CALL_LOG_LIMIT_TYPE: user_input[CONF_CALL_LOG_LIMIT_TYPE],
-                CONF_CALL_LOG_COUNT: user_input[CONF_CALL_LOG_COUNT],
-                CONF_CALL_LOG_DAYS: user_input[CONF_CALL_LOG_DAYS],
+                **_parse_history_input(user_input),
             },
         )
