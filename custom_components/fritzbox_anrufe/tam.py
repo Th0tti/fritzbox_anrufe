@@ -1,7 +1,8 @@
 """Wrapper around the FRITZ!Box answering machine (TAM) TR-064 API.
 
-EXPERIMENTAL / UNVERIFIED AGAINST REAL HARDWARE
--------------------------------------------------
+EXPERIMENTAL - message list confirmed working on real hardware; audio
+download is a third attempt, see :func:`FritzTam.get_download_url` below
+-------------------------------------------------------------------------
 This module was written by researching AVM's TR-064 service description
 for the ``X_AVM-DE_TAM1`` service and the ``GetMessageList`` action, and by
 mirroring the *exact same* download pattern that :mod:`fritzconnection`
@@ -20,22 +21,48 @@ list in :mod:`fritzconnection.lib.fritzcall`:
    (:mod:`fritzconnection.core.processor`), exactly like ``CallCollection``
    does for calls.
 
-Unlike the call list, this could **not** be verified against a real
-FRITZ!Box while building this integration. In particular, AVM's own
-documentation and third-party references are inconsistent about the exact
-name of ``GetMessageList``'s output parameter - some call it ``NewURL``,
-others ``NewMessageListURL``. :meth:`FritzTam._message_list_url` therefore
-checks both names defensively. If your FRITZ!Box uses a different name (or
-a different service/action entirely), the voicemail sensor will simply
-report 0 messages and log a warning rather than breaking the rest of the
-integration - please open a GitHub issue with the log output so this can
-be fixed for real hardware.
+This part (message list) has been confirmed working against real hardware.
+AVM's own documentation and third-party references are inconsistent about
+the exact name of ``GetMessageList``'s output parameter - some call it
+``NewURL``, others ``NewMessageListURL``. :meth:`FritzTam._message_list_url`
+therefore checks both names defensively.
+
+DOWNLOADING the actual recording is a separate problem and has gone through
+several revisions:
+
+1. GET ``download.lua?path=...`` with a classic-web-UI sid as a query
+   parameter - 404 on real hardware.
+2. POST to the same ``download.lua`` with the sid as form body data
+   instead - identical 404 on real hardware. Since switching GET/POST and
+   the sid mechanism didn't change the *symptom* at all, the endpoint
+   itself was suspect, not just the auth details.
+3. **Current approach**: FRITZ!Box's classic web UI does not use
+   ``download.lua`` for TAM recordings on newer FRITZ!OS versions at all -
+   it uses ``/cgi-bin/luacgi_notimeout`` with ``script=/lua/photo.lua`` and
+   the recording's raw path as ``myabfile`` (this is also how FRITZ!Box
+   serves e.g. photos/files from USB storage - ``photo.lua`` is a generic
+   binary-file-serving script, not literally photo-specific). This was
+   found via FHEM's mature ``72_FBTAM.pm`` module and independently
+   corroborated by a real-world writeup (FRITZ!Box 7530, FRITZ!OS 7.57,
+   https://kynan.github.io/blog/2023/12/28/save-all-voicebox-messages-from-your-fritzbox)
+   describing the exact same endpoint. Both sources also agree the sid
+   used must be the one embedded in the ``GetMessageList``/TAM response's
+   own URL, not a separately-obtained classic-UI login sid - which would
+   also explain why attempts 1 and 2 above failed even once a valid sid
+   was being sent: a *different, unrelated* session than the one the box
+   associated with the message list. See :meth:`FritzTam.get_download_url`.
+
+This third approach is itself not yet confirmed against the user's actual
+hardware - please open a GitHub issue (ideally with the resulting HTTP
+status code) if it still fails.
 """
 
 from __future__ import annotations
 
 import datetime
 import logging
+import re
+from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 
 from fritzconnection.core.fritzconnection import FritzConnection
 from fritzconnection.core.processor import (
@@ -60,6 +87,14 @@ DEFAULT_TAM_INDEX = "0"
 # known candidates are checked, in order of how likely they are correct
 # (mirroring GetCallList's "NewCallListURL" naming convention).
 _URL_RESULT_KEYS = ("NewURL", "NewMessageListURL")
+
+# See the module docstring, download approach 3: the classic-web-UI
+# endpoint actually used for TAM recordings on modern FRITZ!OS, and the
+# sid regex used to pull the session id straight out of GetMessageList's
+# own response URL (e.g. ".../tamcalllist.lua?sid=2400874c61e0ae6e&...").
+_DOWNLOAD_PATH = "/cgi-bin/luacgi_notimeout"
+_DOWNLOAD_SCRIPT = "/lua/photo.lua"
+_SID_RE = re.compile(r"[?&]sid=([a-fA-F0-9]+)")
 
 
 def _datetime_converter(date_string: str | None) -> datetime.datetime | str | None:
@@ -104,10 +139,12 @@ class TamMessage:
     Instance attributes are named exactly like the XML nodes AVM is
     expected to use (mirroring how :class:`fritzconnection.lib.fritzcall.Call`
     is modeled): ``Index``, ``Number``, ``Date``, ``Duration``, ``Name``,
-    ``Path`` (relative/absolute URL to the audio recording, FRITZ!Box-
-    session-authenticated), ``New`` ("1"/"0") and ``Count``. Lowercase
-    convenience properties expose converted values: ``date`` (datetime),
-    ``duration`` (timedelta), ``new`` (bool).
+    ``Path`` (as delivered by the box, e.g.
+    ``"/download.lua?path=/data/tam/rec/rec.0.009"`` - kept verbatim, NOT a
+    directly-fetchable URL; see :meth:`FritzTam.get_download_url` for how
+    the actual recording is downloaded), ``New`` ("1"/"0") and ``Count``.
+    Lowercase convenience properties expose converted values: ``date``
+    (datetime), ``duration`` (timedelta), ``new`` (bool).
     """
 
     date = _AttributeConverter("Date", _datetime_converter)
@@ -178,3 +215,44 @@ class FritzTam:
             return []
         root = get_xml_root(url, session=self.fc.session)
         return list(TamMessageCollection(root))
+
+    def get_download_url(self, message: TamMessage) -> str | None:
+        """Build an authenticated download URL for one message's recording.
+
+        See the module docstring (download approach 3) for why this is
+        ``/cgi-bin/luacgi_notimeout?sid=...&script=/lua/photo.lua&myabfile=...``
+        rather than the ``download.lua`` URL suggested by ``message.Path``
+        itself, and why the sid is pulled fresh from a new
+        ``GetMessageList`` call rather than reused/separately obtained: the
+        sid the box accepts for a recording download appears to be tied to
+        the specific session that produced the message list, not a
+        general-purpose FRITZ!Box login.
+        """
+        if not message.Path:
+            return None
+
+        list_url = self._message_list_url()
+        if not list_url:
+            return None
+
+        sid_match = _SID_RE.search(list_url)
+        if not sid_match:
+            _LOGGER.warning(
+                "Anrufbeantworter: konnte keine sid aus der GetMessageList-"
+                "Antwort-URL (%s) extrahieren - Download nicht möglich.",
+                list_url,
+            )
+            return None
+        sid = sid_match.group(1)
+
+        # message.Path is normally "/download.lua?path=<raw file path>" -
+        # pull just the raw path back out. Fall back to using message.Path
+        # itself (minus any query string) if a FRITZ!OS version ever
+        # delivers a bare path with no "download.lua?path=" wrapper.
+        parsed = urlsplit(message.Path)
+        raw_path = parse_qs(parsed.query).get("path", [None])[0] or parsed.path
+
+        download_query = urlencode(
+            {"sid": sid, "script": _DOWNLOAD_SCRIPT, "myabfile": raw_path}
+        )
+        return urljoin(list_url, f"{_DOWNLOAD_PATH}?{download_query}")
