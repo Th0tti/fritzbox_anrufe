@@ -757,12 +757,27 @@ const EDITOR_SCHEMA = [
 class FritzboxAnrufeCardEditor extends HTMLElement {
   setConfig(config) {
     this._config = withDefaults(config);
-    this._render();
+    this._renderConfig();
   }
 
   set hass(hass) {
     this._hass = hass;
-    this._render();
+    // IMPORTANT: only refresh the form's `hass` reference here (needed so
+    // e.g. entity pickers see current entity state/translations) - do NOT
+    // also reset `.data` on every hass tick. Home Assistant pushes a new
+    // hass object to every card/editor on ANY entity state change system-
+    // wide, completely unrelated to this form; re-assigning `.data` each
+    // time reset the underlying <ha-form> number/text inputs mid-edit,
+    // which made it look like a value (e.g. typing "5" over "10") could
+    // never "stick" - every keystroke got wiped by the next hass update
+    // before the user could finish. `.data` is now only set from
+    // setConfig()/_renderConfig() - i.e. on genuine external config
+    // changes, not on unrelated background hass churn.
+    if (this._form) {
+      this._form.hass = hass;
+    } else {
+      this._renderConfig();
+    }
   }
 
   _valueChanged(ev) {
@@ -777,17 +792,17 @@ class FritzboxAnrufeCardEditor extends HTMLElement {
     );
   }
 
-  _render() {
+  _renderConfig() {
     if (!this._hass || !this._config) return;
     if (!this._form) {
       this._form = document.createElement("ha-form");
       this._form.addEventListener("value-changed", (ev) => this._valueChanged(ev));
+      this._form.schema = EDITOR_SCHEMA;
+      this._form.computeLabel = computeEditorLabel;
       this.appendChild(this._form);
     }
     this._form.hass = this._hass;
     this._form.data = this._config;
-    this._form.schema = EDITOR_SCHEMA;
-    this._form.computeLabel = computeEditorLabel;
   }
 }
 
