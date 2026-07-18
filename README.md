@@ -48,17 +48,61 @@ mitgelieferte Dashboard-Karte.
 
 ## Voraussetzungen
 
-- Eine AVM FRITZ!Box mit aktiviertem Callmonitor
-  (`#96*5*` auf einem angeschlossenen Telefon wählen, um ihn zu aktivieren)
-  und aktiviertem TR-064-Zugriff (FRITZ!Box-Oberfläche → Heimnetz →
-  Netzwerk → Netzwerkeinstellungen → "Zugriff für Anwendungen zulassen").
-- Ein FRITZ!Box-Benutzerkonto mit den Berechtigungen "FRITZ!Box-Einstellungen"
-  sowie **"Sprachnachrichten, Faxnachrichten, FRITZ!App Fon und Anrufliste"**
-  (System → FRITZ!Box-Benutzer → Berechtigungen). Ohne die zweite
-  Berechtigung bleiben nur die drei Verlaufs-Sensoren `unavailable`, der
-  Live-Sensor funktioniert davon unabhängig.
-- Home Assistant, aktuelle Version empfohlen (getestet mit Python 3.14+,
-  wie von aktuellen Home-Assistant-Releases vorausgesetzt).
+**Wichtig:** Die folgenden zwei Schritte müssen **direkt in der
+FRITZ!Box-Oberfläche** (`http://fritz.box` oder die IP der Box) erledigt
+werden, **bevor** die Integration in Home Assistant installiert/eingerichtet
+wird - ohne sie schlägt entweder die Einrichtung fehl oder einzelne Sensoren
+bleiben dauerhaft `unavailable`.
+
+### 1. Callmonitor aktivieren
+
+Der Live-Anrufmonitor-Sensor (`fritzbox_anrufe_live`) hört auf einem eigenen
+Port (1012) mit, der auf der FRITZ!Box standardmäßig **deaktiviert** ist:
+
+1. Ein an der FRITZ!Box angeschlossenes Telefon (Fest- oder IP-Telefon)
+   nehmen und die Ziffernfolge `#96*5*` wählen. Kurz klingeln lassen bzw.
+   auflegen reicht - der Anruf muss nicht angenommen werden.
+2. Zum Deaktivieren (z. B. zum Testen) analog `#96*4*` wählen.
+
+Zusätzlich muss der **TR-064-Zugriff** aktiviert sein - darüber laufen die
+Anruflisten-, Anrufbeantworter- und Options-Abfragen:
+
+3. FRITZ!Box-Oberfläche → **Heimnetz → Netzwerk → Netzwerkeinstellungen**
+   (Reiter) → Häkchen bei **"Zugriff für Anwendungen zulassen"** setzen und
+   speichern.
+
+Ohne Schritt 1 bleibt ausschließlich der Live-Sensor `unavailable` (der Rest
+funktioniert unabhängig davon); ohne Schritt 3 funktioniert die gesamte
+Integration nicht, da sie ohne TR-064 keine Verbindung aufbauen kann.
+
+### 2. FRITZ!Box-Benutzerkonto einrichten
+
+Die Integration meldet sich mit einem regulären FRITZ!Box-Benutzerkonto an
+(nicht mit einem separaten API-Schlüssel) - dieses Konto muss vorher
+angelegt bzw. mit den richtigen Berechtigungen versehen werden:
+
+1. FRITZ!Box-Oberfläche → **System → FRITZ!Box-Benutzer** →
+   "Benutzer hinzufügen" (oder ein bestehendes Konto bearbeiten).
+2. Benutzername und Kennwort vergeben - diese Zugangsdaten werden später bei
+   der Einrichtung der Integration in Home Assistant abgefragt.
+3. Unter **"Berechtigungen für diesen Benutzer"** mindestens ankreuzen:
+   - **"FRITZ!Box-Einstellungen"** (Grundvoraussetzung für jeglichen
+     TR-064-Zugriff).
+   - **"Sprachnachrichten, Faxnachrichten, FRITZ!App Fon und Anrufliste"**
+     (wird für die drei Verlaufs-Sensoren UND den
+     Anrufbeantworter-Sensor benötigt). Fehlt diese Berechtigung, bleiben
+     genau diese vier Sensoren `unavailable` - der Live-Sensor ist davon
+     unabhängig, da er nicht über TR-064, sondern über den separaten
+     Callmonitor-Port läuft.
+4. Speichern.
+
+Erst wenn beide Schritte erledigt sind, mit [Installation](#installation)
+fortfahren.
+
+### Home Assistant
+
+Aktuelle Version empfohlen (getestet mit Python 3.14+, wie von aktuellen
+Home-Assistant-Releases vorausgesetzt).
 
 ## Installation
 
@@ -266,11 +310,12 @@ Benötigt die separat über HACS installierbare Community-Karte
 Home Assistant unterstützt seit Version 2026.3 eigene Marken-Icons für
 Custom Integrations über einen `brand/`-Unterordner (`icon.png`,
 `logo.png`, optional `@2x`- und `dark_`-Varianten) - ganz ohne Eintrag in
-der offiziellen `home-assistant/brands`-Sammlung. Dieses Repository liefert
-ab Version 1.0.1 ein FRITZ!-Icon (`brand/icon.png`, `brand/logo.png`) mit
-aus - es wird ohne weitere Konfiguration automatisch in der
-Integrationsliste sowie als Geräte-Icon verwendet. Die Quelldatei war ein
-kleines JPEG (165×153 px), das auf ein quadratisches 256×256-PNG
+der offiziellen `home-assistant/brands`-Sammlung (die für Custom
+Integrations inzwischen keine Icons mehr annimmt). Dieses Repository
+liefert ab Version 1.0.1 ein FRITZ!-Icon (`brand/icon.png`,
+`brand/logo.png`) mit aus - es wird ohne weitere Konfiguration automatisch
+in der Integrationsliste sowie als Geräte-Icon verwendet. Die Quelldatei
+war ein kleines JPEG (165×153 px), das auf ein quadratisches 256×256-PNG
 aufbereitet wurde; wer eine höher aufgelöste offizielle Vektor-/Bilddatei
 hat, kann `brand/icon.png`/`brand/logo.png` jederzeit durch eine bessere
 Version ersetzen (z. B. von
@@ -279,6 +324,21 @@ Version ersetzen (z. B. von
 Die Entitäten selbst haben bereits passende Icons (`mdi:phone`,
 `mdi:phone-incoming`, `mdi:phone-outgoing`, `mdi:phone-missed`,
 `mdi:voicemail`, siehe `icons.json`).
+
+**Icon erscheint nicht auf der HACS-Downloads-Seite:** Das ist ein
+bekannter, aktuell offener Fehler in HACS selbst, nicht in dieser
+Integration. HACS' eigene Downloads-Übersicht lädt Icons weiterhin über
+die alte öffentliche CDN (`data-v2.hacs.xyz`/`brands.home-assistant.io`),
+kennt den seit Home Assistant 2026.3 unterstützten Weg für inline
+mitgelieferte Icons (`brand/`-Ordner, wie oben beschrieben) aber noch nicht
+- siehe [hacs/integration#5223](https://github.com/hacs/integration/issues/5223)
+und [hacs/integration#5171](https://github.com/hacs/integration/issues/5171).
+Für Custom Integrations akzeptiert `home-assistant/brands` inzwischen
+bewusst keine Icons mehr, ein Workaround auf Integrationsseite existiert
+also nicht. Wichtig: Das Icon wird davon unabhängig überall sonst in Home
+Assistant korrekt angezeigt (Einstellungen → Geräte & Dienste, Geräteseite
+usw.) - betroffen ist ausschließlich die HACS-eigene Downloads-Liste, bis
+die dortigen Maintainer den Fehler beheben.
 
 ## Bekannte Einschränkungen
 
@@ -297,22 +357,26 @@ Die Entitäten selbst haben bereits passende Icons (`mdi:phone`,
   entity_id erhalten, bis die Entity manuell gelöscht und neu angelegt wird
   - das ist bewusstes Home-Assistant-Verhalten, keine Einschränkung dieser
   Integration.
-- **Anrufbeantworter-Sensor und -Wiedergabe sind experimentell.** Die
-  Nachrichtenliste (Sensor `fritzbox_anrufe_anrufbeantworter`, TR-064-Aktion
-  `X_AVM-DE_TAM1`/`GetMessageList`) ist an echter Hardware bestätigt
-  funktionsfähig. Für die Wiedergabe liefert die Nachrichtenliste je
-  Nachricht einen `Path` in Richtung `download.lua?path=...` - dieser Weg
-  benutzt aber NICHT die TR-064-Anmeldung, sondern die klassische
-  FRITZ!Box-Weboberflächen-Sitzung (`sid`, per Challenge-Response-Login
-  gegen `/login_sid.lua`, wie sie z. B. auch AVMs eigenes
-  Smart-Home-HTTP-Interface verwendet). Die Integration meldet sich dafür
-  mit denselben Zugangsdaten automatisch zusätzlich darüber an
-  (`fritzconnection.core.fritzhttp.FritzHttp`) - ohne diesen zweiten
-  Login-Mechanismus schlägt der Download mit `404 Not Found` fehl (genau
-  dieses Verhalten wurde beim Testen beobachtet und ist damit behoben).
-  Funktioniert der Sensor oder die Wiedergabe auf deiner FRITZ!Box weiterhin
-  nicht, bitte mit dem Log-Auszug (`custom_components.fritzbox_anrufe.*`)
-  als GitHub-Issue melden. Bewusst **nicht** unterstützt: Faxnachrichten.
+- **Anrufbeantworter-Sensor und -Wiedergabe sind experimentell**, aber
+  inzwischen an echter Hardware bestätigt funktionsfähig (u. a. unter
+  FRITZ!OS 8.24) - sowohl die Nachrichtenliste (Sensor
+  `fritzbox_anrufe_anrufbeantworter`, TR-064-Aktion
+  `X_AVM-DE_TAM1`/`GetMessageList`) als auch die Wiedergabe. Der
+  Audio-Download läuft über
+  `/cgi-bin/luacgi_notimeout?sid=...&script=/lua/photo.lua&myabfile=...`
+  gegen den normalen Web-UI-Port (80/443) der FRITZ!Box - **nicht** über
+  `download.lua`, wie es die in der Nachrichtenliste enthaltene `Path`-
+  Angabe nahelegt, und **nicht** über den TR-064-Port (i. d. R. 49000).
+  Da unterschiedliche FRITZ!OS-Versionen sich in Testberichten uneinig
+  waren, woher die dafür nötige Sitzung (`sid`) stammen muss, probiert die
+  Integration bei Bedarf automatisch zwei Varianten durch: zuerst die in
+  der `GetMessageList`-Antwort enthaltene sid (ohne zusätzliche Anmeldung),
+  bei Fehlschlag eine vollständige FRITZ!Box-Weboberflächen-Anmeldung als
+  Rückfalloption. Falls die Wiedergabe auf einer bestimmten FRITZ!OS-
+  Version dennoch fehlschlägt, bitte mit dem vollständigen Log-Auszug
+  (`custom_components.fritzbox_anrufe.*`, insbesondere dem/den
+  HTTP-Statuscode(s)) als GitHub-Issue melden. Bewusst **nicht**
+  unterstützt: Faxnachrichten.
 - Die Anrufbeantworter-Wiedergabe läuft über einen serverseitigen,
   Home-Assistant-authentifizierten Proxy (die FRITZ!Box-Anmeldedaten
   verlassen dabei nie den Home-Assistant-Server); pro Wiedergabe wird die
@@ -330,12 +394,13 @@ Die Entitäten selbst haben bereits passende Icons (`mdi:phone`,
   Verlaufstiefe (Anzahl-Dropdown mit festen Presets oder Tage), bereits bei
   der Erst-Einrichtung wählbar; mitgelieferte interaktive Dashboard-Karte
   `fritzbox-anrufe-card` (Icon-Filterleiste, Live-Banner, responsives
-  Layout, grafischer Karten-Editor mit Sensor-/Zeilen-/Spaltenauswahl);
-  **experimenteller** Anrufbeantworter-Sensor (an echter Hardware bestätigt
-  funktionsfähig) mit im Dashboard direkt abspielbaren Sprachnachrichten
-  über einen authentifizierten Server-Proxy und "Abspielen"-Button
-  (`hass.fetchWithAuth` plus eine zusätzliche FRITZ!Box-Weboberflächen-
-  Sitzung für den eigentlichen Download, siehe
+  Layout, grafischer Karten-Editor mit Sensor-/Zeilen-/Spaltenauswahl,
+  Zeilenanzahl per Schieberegler 1-15) mit **experimentellem**
+  Anrufbeantworter-Sensor (Nachrichtenliste und Wiedergabe an echter
+  Hardware bestätigt funktionsfähig, u. a. unter FRITZ!OS 8.24) samt im
+  Dashboard direkt abspielbaren Sprachnachrichten über einen
+  authentifizierten Server-Proxy und "Abspielen"-Button
+  (`hass.fetchWithAuth`; Download-Details siehe
   [Bekannte Einschränkungen](#bekannte-einschränkungen)); alle Kategorien
   (Alle/Gesamt, Eingehend, Ausgehend, Verpasst, Anrufbeantworter) einzeln
   ein-/ausblendbar auf derselben Karte; FRITZ!-Marken-Icon (`brand/`);
@@ -370,8 +435,8 @@ Die Entitäten selbst haben bereits passende Icons (`mdi:phone`,
   Log-Auszug als GitHub-Issue melden.
 - **Log-Meldung "Login attempt or request with invalid authentication ...
   /api/fritzbox_anrufe/tam_media/..." (Quelle `components/http/ban.py`)**:
-  war vor Version 1.0.1 (Zweitkorrektur) das erwartete Verhalten, wenn eine
-  Sprachnachricht abgespielt wurde - behoben, siehe
+  war vor der ersten Anrufbeantworter-Korrektur das erwartete Verhalten,
+  wenn eine Sprachnachricht abgespielt wurde - behoben, siehe
   [Wiedergabe der Anrufbeantworter-Nachrichten](#wiedergabe-der-anrufbeantworter-nachrichten).
   Tritt es weiterhin auf: Integration auf die neueste Version aktualisiert
   und Home Assistant vollständig neu gestartet (nicht nur neu geladen), damit
@@ -384,13 +449,26 @@ Die Entitäten selbst haben bereits passende Icons (`mdi:phone`,
   betroffenen Nachrichten-ID durchsuchen, sowie die Browser-Konsole (F12) auf
   Fehler beim Laden von `/api/fritzbox_anrufe/tam_media/...` prüfen.
 - **Log-Meldung `custom_components.fritzbox_anrufe.http`: "Fehler beim
-  Abrufen der Anrufbeantworter-Nachricht ...: 404 Client Error: Not Found
-  for url: .../download.lua?path=..."**: war vor Version 1.0.1
-  (Drittkorrektur) das erwartete Verhalten - der `Path` aus der
-  Nachrichtenliste benötigt eine separate FRITZ!Box-Weboberflächen-Sitzung
-  (`sid`), die zusätzlich zur TR-064-Anmeldung eingeholt werden muss, siehe
-  [Bekannte Einschränkungen](#bekannte-einschränkungen) - behoben. Tritt es
-  auf der neuesten Version weiterhin auf, bitte mit dem vollständigen
-  Log-Auszug als GitHub-Issue melden (kann z. B. an ein durch die
-  FRITZ!Box-Blockzeit nach mehreren Fehlversuchen gesperrtes Konto liegen -
-  in dem Fall kurz warten und erneut versuchen).
+  Abrufen der Anrufbeantworter-Nachricht ...: Anrufbeantworter-Download
+  fehlgeschlagen (HTTP 404) nach N Versuch(en) mit unterschiedlichen
+  Sitzungen"**: Die Anrufbeantworter-Wiedergabe funktioniert an echter
+  Hardware bestätigt (u. a. FRITZ!OS 8.24) - tritt der Fehler dennoch auf,
+  zunächst prüfen, ob wirklich die neueste Version installiert ist
+  (Einstellungen → Geräte & Dienste → FRITZ!Box Anrufe → Version; nach dem
+  Ersetzen der Dateien Home Assistant **vollständig neu starten**, nicht
+  nur neu laden). Die Integration probiert bereits automatisch mehrere
+  `sid`-Quellen gegen den Web-UI-Port durch (siehe
+  [Bekannte Einschränkungen](#bekannte-einschränkungen)) und meldet erst
+  einen Fehler, wenn alle davon fehlschlagen - "N Versuch(en)" in der
+  Meldung zeigt, wie viele das waren. Tritt der Fehler auf der aktuellen
+  Version weiterhin auf, bitte mit dem vollständigen Log-Auszug **und dem
+  darin enthaltenen HTTP-Statuscode sowie der FRITZ!OS-Version** als
+  GitHub-Issue melden (kann z. B. auch an ein durch die FRITZ!Box-
+  Blockzeit nach mehreren Fehlversuchen gesperrtes Konto liegen - in dem
+  Fall kurz warten und erneut versuchen).
+- **Grafischer Karten-Editor: "Max. Zeilen" lässt sich nicht auf einen
+  neuen Wert ändern / springt zurück**: dafür ist ein Schieberegler statt
+  eines Texteingabefelds verbaut - Home Assistant nach dem Update
+  vollständig neu starten und Browser-Cache leeren (Strg+Shift+R). Bis auf
+  15 Zeilen per Schieberegler einstellbar; höhere Werte weiterhin über den
+  YAML-Editor der Karte möglich.
