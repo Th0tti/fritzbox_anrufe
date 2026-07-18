@@ -11,6 +11,7 @@ import logging
 import mimetypes
 
 from fritzconnection.core.exceptions import FritzConnectionException, FritzSecurityError
+from fritzconnection.core.fritzhttp import FritzHttp
 from requests.exceptions import ConnectionError as RequestsConnectionError, RequestException
 
 from homeassistant.config_entries import ConfigEntry
@@ -23,7 +24,6 @@ _LOGGER = logging.getLogger(__name__)
 
 TAM_UPDATE_INTERVAL = timedelta(minutes=5)
 _DEFAULT_CONTENT_TYPE = "audio/wav"
-_AUDIO_FETCH_TIMEOUT = 20
 
 
 class FritzTamCoordinator(DataUpdateCoordinator[list[TamMessage]]):
@@ -46,6 +46,18 @@ class FritzTamCoordinator(DataUpdateCoordinator[list[TamMessage]]):
         )
         self.config_entry = config_entry
         self._fritz_tam = fritz_tam
+        # download.lua (and the FRITZ!Box's other classic web-UI/lua
+        # endpoints) use a *different* authentication mechanism than the
+        # TR-064 SOAP calls the rest of this integration relies on: a
+        # session id ("sid") obtained via a PBKDF2/MD5 challenge-response
+        # login against /login_sid.lua, appended as a query parameter -
+        # without it, download.lua returns 404 even for a Path taken
+        # verbatim from a legitimate GetMessageList response.
+        # fritzconnection already implements exactly this login flow for
+        # its own AHA (home-automation) HTTP interface; FritzHttp.call_url()
+        # reuses that same mechanism generically for any lua/cgi endpoint,
+        # regenerating the sid once and retrying if the first attempt fails.
+        self._http = FritzHttp(fritz_tam.fc)
 
     async def _async_update_data(self) -> list[TamMessage]:
         """Fetch the current answering-machine messages (executor job)."""
@@ -72,23 +84,29 @@ class FritzTamCoordinator(DataUpdateCoordinator[list[TamMessage]]):
     def fetch_audio(self, message: TamMessage) -> tuple[bytes, str]:
         """Download one message's audio recording. BLOCKING - run in executor.
 
-        Reuses the FRITZ!Box-authenticated ``requests`` session opened for
-        the rest of the integration (digest-auth cookie already attached),
-        so the browser only ever needs a valid Home Assistant session to
-        play a recording - never FRITZ!Box credentials directly.
+        Uses :class:`~fritzconnection.core.fritzhttp.FritzHttp` to obtain a
+        FRITZ!Box classic-web-UI session id (see the comment on ``_http``
+        above) and attach it to the ``Path`` from the message list, so the
+        browser only ever needs a valid Home Assistant session to play a
+        recording - never FRITZ!Box credentials directly.
         """
-        fc = self._fritz_tam.fc
         path = message.Path
         if not path:
             raise RequestException("message has no audio path")
 
+        fc = self._fritz_tam.fc
         if path.startswith("http://") or path.startswith("https://"):
             url = path
         else:
             url = f"{fc.address}{path if path.startswith('/') else '/' + path}"
 
-        response = fc.session.get(url, timeout=_AUDIO_FETCH_TIMEOUT)
-        response.raise_for_status()
+        try:
+            response = self._http.call_url(url, {})
+        except FritzConnectionException as ex:
+            raise RequestException(
+                f"FRITZ!Box-Sitzung (sid) für Anrufbeantworter-Download"
+                f" fehlgeschlagen: {ex}"
+            ) from ex
 
         content_type = (
             response.headers.get("Content-Type")

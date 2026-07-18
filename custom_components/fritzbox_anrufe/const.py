@@ -20,7 +20,10 @@ ATTR_PREFIXES = "prefixes"
 FRITZ_ATTR_NAME = "name"
 FRITZ_ATTR_SERIAL_NUMBER = "Serial"
 
-UNKNOWN_NAME = "unknown"
+# Anzeigename für Anrufer/Angerufene ohne Telefonbuch-Eintrag - erscheint
+# so direkt in Sensor-Attributen (calls[].name, Live-Attribute from_name/
+# to_name/with_name) und damit auch in der Dashboard-Karte.
+UNKNOWN_NAME = "Unbekannt"
 SERIAL_NUMBER = "serial_number"
 REGEX_NUMBER = r"[^\d\+]"
 
