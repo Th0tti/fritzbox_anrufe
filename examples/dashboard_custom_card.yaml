@@ -12,24 +12,32 @@
 # werden: in der Lovelace-Kartenauswahl "Karte bearbeiten" wählen - es
 # öffnet sich automatisch ein Home-Assistant-Standardformular mit
 # Entity-Pickern für alle fünf Sensoren, einem Zahlenfeld für die
-# Zeilenanzahl und einem Schalter pro Spalte (Name/Nummer/eigene
-# Rufnummer/Gerät/Dauer/Datum/VIP).
+# Zeilenanzahl, einem Schalter pro Kategorie (Alle/Gesamt, Eingehend,
+# Ausgehend, Verpasst, Anrufbeantworter) und einem Schalter pro Spalte
+# (Name/Nummer/eigene Rufnummer/Gerät/Dauer/Datum/VIP).
 #
 # Passe die Entity-IDs unten an deine tatsächlichen Sensor-Namen an
 # (Einstellungen -> Geräte & Dienste -> Entitäten -> nach "Anrufe" suchen).
 # entity_voicemail ist optional (siehe Funktionsweise unten).
 #
 # Funktionsweise:
-# - Oben erscheint eine Icon-Leiste: Alle / Eingehend / Ausgehend / Verpasst.
-#   Klick auf ein Icon filtert die Liste entsprechend.
-# - Standardansicht ("Alle") zeigt die neuesten Anrufe aller drei Typen
+# - Oben erscheint eine Icon-Leiste mit den aktivierten Kategorien (Alle /
+#   Eingehend / Ausgehend / Verpasst). Klick auf ein Icon filtert die Liste
+#   entsprechend. Über show_alle/show_eingehend/show_ausgehend/show_verpasst
+#   lässt sich jede Kategorie einzeln aus der Leiste UND aus der
+#   "Alle"-Sammelansicht herausnehmen (z. B. um "Verpasst" nirgends
+#   anzuzeigen); bleibt nur eine Kategorie übrig, entfällt die Leiste ganz.
+# - Kategorie "Alle" zeigt die neuesten Anrufe aller aktivierten Anruftypen
 #   gemischt, sortiert nach Datum, begrenzt auf "max_rows" Zeilen.
 # - Findet gerade ein Gespräch statt (Live-Sensor != "idle"), erscheint
 #   oberhalb der Icon-Leiste ein hervorgehobenes Banner mit den Live-Daten.
-# - Ist entity_voicemail gesetzt, erscheint unterhalb der Anrufliste ein
-#   "Anrufbeantworter"-Bereich mit Nachrichtenliste und einem Player pro
-#   Nachricht zum direkten Abspielen (EXPERIMENTELL, siehe README.md ->
-#   "Bekannte Einschränkungen" - bislang nicht an echter Hardware getestet).
+# - Ist entity_voicemail gesetzt UND show_anrufbeantworter aktiviert,
+#   erscheint unterhalb der Anrufliste ein "Anrufbeantworter"-Bereich mit
+#   Nachrichtenliste und einem "Abspielen"-Button pro Nachricht
+#   (EXPERIMENTELL, siehe README.md -> "Bekannte Einschränkungen"). Der
+#   Button lädt die Aufnahme erst bei Klick über hass.fetchWithAuth() - ein
+#   direkter <audio src> würde an der Home-Assistant-Authentifizierung
+#   scheitern.
 # - Über show_name/show_number/show_own_number/show_device/show_duration/
 #   show_date/show_vip lässt sich jede Spalte der Anrufliste einzeln
 #   ein-/ausblenden (Standard: alle an außer show_own_number).
@@ -46,6 +54,11 @@ entity_ausgehend: sensor.REPLACE_ME_ausgehende_anrufe
 entity_verpasst: sensor.REPLACE_ME_verpasste_anrufe
 entity_voicemail: sensor.REPLACE_ME_anrufbeantworter  # optional, experimentell
 max_rows: 10
+show_alle: true
+show_eingehend: true
+show_ausgehend: true
+show_verpasst: true
+show_anrufbeantworter: true
 show_name: true
 show_number: true
 show_own_number: false
