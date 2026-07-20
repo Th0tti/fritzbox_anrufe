@@ -403,7 +403,13 @@ die dortigen Maintainer den Fehler beheben.
   Ressourcen-Eintrag geladen (`add_extra_js_url()` entfernt), inklusive
   Versionsparameter an der URL (`?v=<Version>`) zur zuverlässigen
   Cache-Invalidierung nach Updates. Details siehe
-  [Fehlerbehebung](#fehlerbehebung).
+  [Fehlerbehebung](#fehlerbehebung). Zusätzlich robuster gegen eine falsch
+  konfigurierte `entity_live`: Das Live-Banner erscheint jetzt nur noch bei
+  den drei bekannten Anruf-Zuständen (Klingelt/Wählen/Gespräch läuft) statt
+  bei "allem außer ein paar bekannten Ruhezuständen" - zeigt ein falsch
+  zugeordneter Sensor (z. B. der Anrufbeantworter-Sensor mit seiner
+  Nachrichtenanzahl als Zustand) also z. B. den Wert `10`, bleibt das
+  Banner jetzt korrekt ausgeblendet statt die Zahl dauerhaft anzuzeigen.
 - **1.0.1**: Fünf separate Sensoren (`_live`/`_eingehend`/`_ausgehend`/
   `_verpasst`/`_anrufbeantworter`) mit sprachabhängigem Anzeigenamen
   (Deutsch/Englisch) und fest reservierter, sprachneutraler entity_id für
