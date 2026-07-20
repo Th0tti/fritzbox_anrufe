@@ -81,7 +81,16 @@ const LIVE_STATE_LABELS = {
   talking: "Gespräch läuft",
 };
 
-const LIVE_INACTIVE_STATES = new Set(["idle", "unavailable", "unknown", ""]);
+// Allowlist, not a denylist: the banner must only ever appear for the three
+// known "call in progress" states. A denylist of merely "known-inactive"
+// values (idle/unavailable/unknown/"") looked equivalent at first glance,
+// but silently broke down whenever entity_live pointed at the wrong entity
+// (e.g. a *count* sensor such as the Anrufbeantworter-Sensor, whose native
+// state is an integer like "10") - any value not on that denylist was
+// treated as an active call and rendered verbatim as the banner text. With
+// an allowlist, a misconfigured or unexpected state simply hides the
+// banner instead of displaying garbage.
+const LIVE_ACTIVE_STATES = new Set(Object.keys(LIVE_STATE_LABELS));
 
 const CONFIG_DEFAULTS = {
   title: "FRITZ!Box Anrufe",
@@ -435,7 +444,7 @@ class FritzboxAnrufeCard extends HTMLElement {
 
   _isLiveActive() {
     const stateObj = this._liveStateObj();
-    return !!stateObj && !LIVE_INACTIVE_STATES.has(stateObj.state);
+    return !!stateObj && LIVE_ACTIVE_STATES.has(stateObj.state);
   }
 
   _typeIcon(type) {
