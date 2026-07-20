@@ -390,13 +390,20 @@ die dortigen Maintainer den Fehler beheben.
 - **1.0.2**: Fix für "Dashboard-Karte wird nicht gefunden" bzw.
   "Konfigurationsfehler: Custom-Element ist im Frontend unbekannt" trotz
   fehlerfrei geladener Integration und vorhandener Kartendatei - betraf
-  einen Teil der Installationen (Ursache: eine bereits zwischengespeicherte
-  Home-Assistant-Startseite im Browser/in der Companion-App, die auch ein
-  vollständiger Neustart nicht auflöst). Die Karte wird jetzt zusätzlich
-  zu `add_extra_js_url()` als echter, dauerhafter Ressourcen-Eintrag unter
-  Einstellungen → Dashboards → Ressourcen registriert - dieser Weg wird
-  zur Laufzeit gelesen und ist von der zwischengespeicherten Startseite
-  unabhängig. Details siehe [Fehlerbehebung](#fehlerbehebung).
+  einen Teil der Installationen. Ursache (durch Tests eines Nutzers,
+  marcedale, an echter Hardware bestätigt): die Karte wurde auf zwei
+  Wegen gleichzeitig registriert, direkt eingebettet über
+  `add_extra_js_url()` **und** als Ressourcen-Eintrag unter
+  Einstellungen → Dashboards → Ressourcen. Ein Browser führt eine
+  Modul-URL aber nur genau einmal aus - schlug der eingebettete Weg fehl
+  (z. B. wegen einer bereits zwischengespeicherten Startseite in Browser
+  oder Companion-App), galt die URL als "abgearbeitet", und der
+  Ressourcen-Eintrag konnte sie danach nicht mehr laden, selbst wenn er
+  korrekt angelegt war. Fix: Die Karte wird jetzt ausschließlich noch als
+  Ressourcen-Eintrag geladen (`add_extra_js_url()` entfernt), inklusive
+  Versionsparameter an der URL (`?v=<Version>`) zur zuverlässigen
+  Cache-Invalidierung nach Updates. Details siehe
+  [Fehlerbehebung](#fehlerbehebung).
 - **1.0.1**: Fünf separate Sensoren (`_live`/`_eingehend`/`_ausgehend`/
   `_verpasst`/`_anrufbeantworter`) mit sprachabhängigem Anzeigenamen
   (Deutsch/Englisch) und fest reservierter, sprachneutraler entity_id für
@@ -440,30 +447,29 @@ die dortigen Maintainer den Fehler beheben.
   "Konfigurationsfehler: Custom-Element ist im Frontend unbekannt"**,
   obwohl die Integration fehlerfrei lädt und die Datei
   `custom_components/fritzbox_anrufe/www/fritzbox-anrufe-card.js`
-  nachweislich vorhanden ist: Die Integration registriert die Karte auf
-  zwei unabhängigen Wegen - über `add_extra_js_url()` (schreibt die Karte
-  direkt in die Startseite von Home Assistant) UND, seit Version 1.0.2,
-  zusätzlich als echten, dauerhaften Ressourcen-Eintrag unter
-  Einstellungen → Dashboards → Ressourcen. Der erste Weg kann bei manchen
-  Kombinationen aus Home-Assistant-Version, Browser bzw. der
-  Companion-App ins Leere laufen, wenn eine bereits zwischengespeicherte
-  Startseite (Service Worker im Browser bzw. WebView-Cache der App) nie
-  neu geladen wird - dagegen hilft auch ein vollständiger
-  Home-Assistant-Neustart nichts, weil das rein clientseitig passiert.
-  Der zweite, seit 1.0.2 zusätzliche Weg umgeht das, da Ressourcen zur
-  Laufzeit aus dem Dashboard-Speicher geladen werden, nicht aus der
-  zwischengespeicherten Startseite. Falls es trotzdem weiterhin nicht
-  klappt: prüfen, ob unter Einstellungen → Dashboards → Ressourcen ein
-  Eintrag für `/fritzbox_anrufe_files/fritzbox-anrufe-card.js` erscheint.
-  Fehlt er, läuft das Dashboard vermutlich im YAML-Modus - dort verwaltet
-  Home Assistant Ressourcen ausschließlich über `configuration.yaml`, ein
-  automatischer Eintrag ist dann technisch nicht möglich; die Zeile muss
-  einmalig manuell in die `lovelace:`-Konfiguration eingetragen werden
-  (`resources: - url: /fritzbox_anrufe_files/fritzbox-anrufe-card.js`,
-  `type: module`). Ist der Eintrag vorhanden, aber die Karte lädt trotzdem
-  nicht: einmal den Service Worker der Website löschen (Browser-DevTools →
-  Anwendung/Application → Service Worker → "Unregister") bzw. bei der
-  Companion-App den App-Cache leeren, danach normal neu laden.
+  nachweislich vorhanden ist: Seit Version 1.0.2 (endgültig ab 1.0.2b1)
+  wird die Karte ausschließlich noch als echter, dauerhafter
+  Ressourcen-Eintrag unter Einstellungen → Dashboards → Ressourcen
+  registriert - das ist inzwischen der einzige Ladeweg. (Frühere
+  1.0.2-Vorabversionen registrierten die Karte zusätzlich über
+  `add_extra_js_url()` direkt in der Startseite; das führte auf manchen
+  Installationen dazu, dass die Karte nach einem Neustart der Companion-App
+  dauerhaft verschwand, weil ein Browser eine Modul-URL nur einmal ausführt
+  - schlug der eingebettete Weg fehl, blieb auch der Ressourcen-Eintrag
+  wirkungslos. Seit 1.0.2b1 gibt es nur noch den einen, zuverlässigen Weg.)
+  Prüfen: erscheint unter Einstellungen → Dashboards → Ressourcen ein
+  Eintrag für `/fritzbox_anrufe_files/fritzbox-anrufe-card.js` (mit einem
+  `?v=...`-Versionsparameter)? Fehlt er, läuft das Dashboard vermutlich im
+  YAML-Modus - dort verwaltet Home Assistant Ressourcen ausschließlich über
+  `configuration.yaml`, ein automatischer Eintrag ist dann technisch nicht
+  möglich; die Zeile muss einmalig manuell in die `lovelace:`-Konfiguration
+  eingetragen werden (`resources: - url:
+  /fritzbox_anrufe_files/fritzbox-anrufe-card.js`, `type: module` - ohne
+  Versionsparameter, da hier keine automatische Aktualisierung stattfindet).
+  Ist der Eintrag vorhanden, aber die Karte lädt trotzdem nicht: einmal den
+  Service Worker der Website löschen (Browser-DevTools → Anwendung/
+  Application → Service Worker → "Unregister") bzw. bei der Companion-App
+  den App-Cache leeren, danach normal neu laden.
 - **Anrufbeantworter-Sensor zeigt immer 0 Nachrichten / Warnung im Log zu
   `GetMessageList`**: experimentelle Funktion, siehe
   [Bekannte Einschränkungen](#bekannte-einschränkungen) - bitte mit dem
