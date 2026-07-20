@@ -453,17 +453,17 @@ die dortigen Maintainer den Fehler beheben.
   "Konfigurationsfehler: Custom-Element ist im Frontend unbekannt"**,
   obwohl die Integration fehlerfrei lädt und die Datei
   `custom_components/fritzbox_anrufe/www/fritzbox-anrufe-card.js`
-  nachweislich vorhanden ist: Seit Version 1.0.2 (endgültig ab 1.0.2b1)
-  wird die Karte ausschließlich noch als echter, dauerhafter
-  Ressourcen-Eintrag unter Einstellungen → Dashboards → Ressourcen
-  registriert - das ist inzwischen der einzige Ladeweg. (Frühere
-  1.0.2-Vorabversionen registrierten die Karte zusätzlich über
-  `add_extra_js_url()` direkt in der Startseite; das führte auf manchen
-  Installationen dazu, dass die Karte nach einem Neustart der Companion-App
-  dauerhaft verschwand, weil ein Browser eine Modul-URL nur einmal ausführt
-  - schlug der eingebettete Weg fehl, blieb auch der Ressourcen-Eintrag
-  wirkungslos. Seit 1.0.2b1 gibt es nur noch den einen, zuverlässigen Weg.)
-  Prüfen: erscheint unter Einstellungen → Dashboards → Ressourcen ein
+  nachweislich vorhanden ist: Seit Version 1.0.2 wird die Karte
+  ausschließlich noch als echter, dauerhafter Ressourcen-Eintrag unter
+  Einstellungen → Dashboards → Ressourcen registriert - das ist der einzige
+  Ladeweg. (In einer früheren Zwischenversion registrierte die Karte
+  zusätzlich über `add_extra_js_url()` direkt in der Startseite; das führte
+  auf manchen Installationen dazu, dass die Karte nach einem Neustart der
+  Companion-App dauerhaft verschwand, weil ein Browser eine Modul-URL nur
+  einmal ausführt - schlug der eingebettete Weg fehl, blieb auch der
+  Ressourcen-Eintrag wirkungslos. Das ist seit 1.0.2 behoben, es gibt nur
+  noch den einen, zuverlässigen Weg.) Prüfen: erscheint unter
+  Einstellungen → Dashboards → Ressourcen ein
   Eintrag für `/fritzbox_anrufe_files/fritzbox-anrufe-card.js` (mit einem
   `?v=...`-Versionsparameter)? Fehlt er, läuft das Dashboard vermutlich im
   YAML-Modus - dort verwaltet Home Assistant Ressourcen ausschließlich über
