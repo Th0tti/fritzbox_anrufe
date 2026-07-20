@@ -40,9 +40,11 @@ import logging
 
 from fritzconnection.core.exceptions import FritzConnectionException, FritzSecurityError
 from fritzconnection.lib.fritzcall import (
+    ALL_CALL_TYPES,
     MISSED_CALL_TYPE,
     OUT_CALL_TYPE,
     RECEIVED_CALL_TYPE,
+    REJECTED_CALL_TYPE,
     Call,
     FritzCall,
 )
@@ -54,6 +56,11 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import (
     CALL_LOG_LIMIT_DAYS,
+    CALL_OUTCOME_ANSWERED,
+    CALL_OUTCOME_CONNECTED,
+    CALL_OUTCOME_NOT_CONNECTED,
+    CALL_OUTCOME_UNREACHED,
+    CALL_OUTCOME_VOICEMAIL,
     CALL_TYPE_INCOMING,
     CALL_TYPE_MISSED,
     CALL_TYPE_OUTGOING,
@@ -71,12 +78,88 @@ _LOGGER = logging.getLogger(__name__)
 
 CALL_LOG_UPDATE_INTERVAL = timedelta(minutes=5)
 
-# Maps our internal call-type slugs to fritzconnection's numeric call types.
-_CALL_TYPE_CODES: dict[str, int] = {
-    CALL_TYPE_INCOMING: RECEIVED_CALL_TYPE,
-    CALL_TYPE_MISSED: MISSED_CALL_TYPE,
-    CALL_TYPE_OUTGOING: OUT_CALL_TYPE,
-}
+
+def _classify_call(call: Call) -> tuple[str | None, str | None]:
+    """Return (bucket, outcome) for one raw Call - see the module docstring.
+
+    ``bucket`` is one of CALL_TYPES ("eingehend"/"ausgehend"/"verpasst"), or
+    None for the two transient "call in progress" raw types (not relevant
+    for a *history* list - the live call-monitor sensor already covers
+    that), which are simply dropped.
+
+    ``outcome`` (see const.py) is a finer-grained classification *within*
+    a bucket, used by the dashboard card's optional "Weiterverarbeitung"
+    row (since v1.0.3):
+
+    - REJECTED_CALL_TYPE (10) covers calls the FRITZ!Box itself intercepted
+      before they rang through to a person - e.g. a phonebook/blocklist
+      rule, or a contact configured to go straight to the answering
+      machine. Confirmed necessary by a real-world report: such a call did
+      not appear under "Verpasste Anrufe" at all before this was added - it
+      was simply invisible to all three sensors.
+    - RECEIVED_CALL_TYPE (1) covers BOTH a call answered by a person AND a
+      call that went to the answering machine and recorded a message - AVM
+      groups both under its own "incoming calls" filter and only tells them
+      apart visually (a different icon) based on whether ``Path`` (the
+      recording, if any) is set. Since v1.0.3, this integration follows
+      that same signal to reclassify "went to the answering machine" calls
+      as CALL_TYPE_MISSED instead of CALL_TYPE_INCOMING - "eingehend"
+      therefore only ever contains genuinely person-answered calls.
+    - Within CALL_TYPE_MISSED, whether a message was actually recorded
+      (``Path`` set) is again determined via CALL_OUTCOME_VOICEMAIL vs.
+      CALL_OUTCOME_UNREACHED. The FRITZ!Box call list does not reliably
+      expose a *further* distinction between "caller hung up before the
+      answering machine picked up" and "reached the answering machine's
+      greeting but left no message" - both fall under
+      CALL_OUTCOME_UNREACHED for now. See the module-level
+      ``_log_raw_call_for_diagnostics`` debug logging below, added to
+      gather real examples of both cases before attempting a finer split.
+    - For OUT_CALL_TYPE (3), only connection duration is evaluated: the
+      FRITZ!Box call list does not expose a dedicated "busy" signal
+      distinguishable from a plain unanswered outgoing call - both show as
+      zero duration. See README, Fehlerbehebung.
+    """
+    has_recording = bool(call.Path)
+
+    if call.type == RECEIVED_CALL_TYPE:
+        if has_recording:
+            return CALL_TYPE_MISSED, CALL_OUTCOME_VOICEMAIL
+        return CALL_TYPE_INCOMING, CALL_OUTCOME_ANSWERED
+
+    if call.type in (MISSED_CALL_TYPE, REJECTED_CALL_TYPE):
+        if has_recording:
+            return CALL_TYPE_MISSED, CALL_OUTCOME_VOICEMAIL
+        return CALL_TYPE_MISSED, CALL_OUTCOME_UNREACHED
+
+    if call.type == OUT_CALL_TYPE:
+        outcome = CALL_OUTCOME_CONNECTED if call.duration else CALL_OUTCOME_NOT_CONNECTED
+        return CALL_TYPE_OUTGOING, outcome
+
+    # ACTIVE_RECEIVED_CALL_TYPE (9) / ACTIVE_OUT_CALL_TYPE (11) - ignored.
+    return None, None
+
+
+def _log_raw_call_for_diagnostics(call: Call, bucket: str | None, outcome: str | None) -> None:
+    """Temporary DEBUG log of one call's raw fields alongside our classification.
+
+    Added in v1.0.3 specifically to collect real-world examples for the
+    still-unconfirmed distinction mentioned in ``_classify_call`` above
+    (hung up before the answering machine vs. reached it without leaving a
+    message). Enable debug logging for ``custom_components.fritzbox_anrufe``
+    (Einstellungen -> Geräte & Dienste -> FRITZ!Box Anrufe -> Info-Symbol
+    aktivieren, oder in configuration.yaml unter ``logger: logs:``) and
+    reproduce a specific scenario to see the exact raw values here.
+    """
+    _LOGGER.debug(
+        "Anrufliste: Id=%s Type=%s Path=%r Duration=%r Date=%s -> bucket=%s outcome=%s",
+        call.Id,
+        call.Type,
+        call.Path,
+        call.Duration,
+        call.Date,
+        bucket,
+        outcome,
+    )
 
 
 @dataclass
@@ -128,31 +211,51 @@ class FritzCallLogCoordinator(DataUpdateCoordinator[CallLogData]):
         return calls[:value]
 
     def _fetch_calls(self) -> CallLogData:
-        """Download the shared call list once and split/limit it per type.
+        """Download the shared call list once and split/limit it per bucket.
 
-        Only the first ``get_calls()`` passes ``update=True`` so the raw,
-        combined call list is downloaded from the FRITZ!Box exactly once per
-        polling cycle; the other two calls filter the already-downloaded,
-        cached data by type.
+        A single ``get_calls(calltype=ALL_CALL_TYPES, update=True, ...)``
+        downloads the raw, combined call list from the FRITZ!Box exactly
+        once per polling cycle; every call is then classified and sorted
+        into one of our three buckets client-side via ``_classify_call``
+        (unmapped raw types - the two transient "call in progress" ones -
+        are skipped). The computed outcome is stashed as a dynamic
+        ``outcome`` attribute directly on the ``Call`` instance so
+        ``sensor.py`` can read it without recomputing the classification.
         """
-        call_types = list(CALL_TYPES)
-        first_type = call_types[0]
-        calls_by_type: dict[str, list[Call]] = {}
-
-        first_raw = self._fritz_call.get_calls(
-            calltype=_CALL_TYPE_CODES[first_type],
+        raw_calls = self._fritz_call.get_calls(
+            calltype=ALL_CALL_TYPES,
             update=True,
             days=SHARED_CALL_LOG_FETCH_DAYS,
         )
-        calls_by_type[first_type] = self._apply_limit(first_raw, first_type)
 
-        for call_type in call_types[1:]:
-            raw = self._fritz_call.get_calls(
-                calltype=_CALL_TYPE_CODES[call_type], update=False
-            )
-            calls_by_type[call_type] = self._apply_limit(raw, call_type)
+        unsorted_by_type: dict[str, list[Call]] = {call_type: [] for call_type in CALL_TYPES}
+        for call in raw_calls:
+            bucket, outcome = _classify_call(call)
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _log_raw_call_for_diagnostics(call, bucket, outcome)
+            if bucket is None:
+                continue
+            call.outcome = outcome
+            unsorted_by_type[bucket].append(call)
 
+        calls_by_type = {
+            call_type: self._apply_limit(calls, call_type)
+            for call_type, calls in unsorted_by_type.items()
+        }
         return CallLogData(calls_by_type=calls_by_type)
+
+    def get_call(self, call_type: str, call_id: str) -> Call | None:
+        """Look up one currently-known call by its bucket + raw Id string.
+
+        Used by http.py's FritzBoxCallMediaView to resolve a "Weiterver-
+        arbeitung" download link back to the specific Call it came from.
+        """
+        if self.data is None:
+            return None
+        for call in self.data.calls(call_type):
+            if str(call.id) == call_id:
+                return call
+        return None
 
     async def _async_update_data(self) -> CallLogData:
         """Fetch the current call lists from the FRITZ!Box (executor job)."""

@@ -24,6 +24,7 @@ from .base import Contact, FritzBoxPhonebook
 from .call_log import FritzCallLogCoordinator
 from .const import (
     ATTR_PREFIXES,
+    CALL_MEDIA_URL_BASE,
     CALL_TYPE_LIVE,
     CALL_TYPE_OUTGOING,
     CALL_TYPE_VOICEMAIL,
@@ -103,6 +104,7 @@ async def async_setup_entry(
             phonebook_name=config_entry.title,
             fritzbox_phonebook=fritzbox_phonebook,
             device_info=device_info,
+            config_entry_id=config_entry.entry_id,
         )
         for call_type in CALL_TYPES
     ]
@@ -245,11 +247,13 @@ class FritzBoxCallListSensor(CoordinatorEntity[FritzCallLogCoordinator], SensorE
         phonebook_name: str,
         fritzbox_phonebook: FritzBoxPhonebook,
         device_info: DeviceInfo,
+        config_entry_id: str,
     ) -> None:
         """Initialize the call-list sensor."""
         super().__init__(coordinator)
         self._call_type = call_type
         self._fritzbox_phonebook = fritzbox_phonebook
+        self._config_entry_id = config_entry_id
 
         # translation_key selects the matching icon (icons.json) and the
         # localized name (strings.json, entity.sensor.fritzbox_anrufe_<type>).
@@ -296,6 +300,16 @@ class FritzBoxCallListSensor(CoordinatorEntity[FritzCallLogCoordinator], SensorE
             contact = self._fritzbox_phonebook.get_contact(external_number)
 
         duration = call.duration
+        # "outcome" is set by FritzCallLogCoordinator._fetch_calls() (see
+        # call_log.py:_classify_call) as a dynamic attribute directly on the
+        # Call instance - used by the dashboard card's optional
+        # "Weiterverarbeitung" row (since v1.0.3) to pick an icon/action.
+        # media_url is only present when a recording exists (call.Path set,
+        # i.e. outcome == CALL_OUTCOME_VOICEMAIL) - see http.py.
+        outcome = getattr(call, "outcome", None)
+        media_url = None
+        if call.Path:
+            media_url = f"{CALL_MEDIA_URL_BASE}/{self._config_entry_id}/{self._call_type}/{call.id}"
         return {
             "type": self._call_type,
             "date": call.date.isoformat() if isinstance(call.date, datetime) else None,
@@ -305,6 +319,8 @@ class FritzBoxCallListSensor(CoordinatorEntity[FritzCallLogCoordinator], SensorE
             "device": call.Device or None,
             "duration": str(duration) if isinstance(duration, timedelta) else None,
             "vip": contact.vip if contact else False,
+            "outcome": outcome,
+            "media_url": media_url,
         }
 
 

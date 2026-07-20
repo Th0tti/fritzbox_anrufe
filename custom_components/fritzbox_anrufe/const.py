@@ -66,6 +66,37 @@ CALL_TYPE_VOICEMAIL = "anrufbeantworter"
 # Pfad: f"{TAM_MEDIA_URL_BASE}/{config_entry_id}/{message_index}".
 TAM_MEDIA_URL_BASE = "/api/fritzbox_anrufe/tam_media"
 
+# Analoge Proxy-Route für Sprachnachrichten, die über einen Eintrag der
+# Anruflisten-Sensoren (nicht über den Anrufbeantworter-Sensor) erreicht
+# werden - siehe http.py:FritzBoxCallMediaView und die "Weiterverarbeitung"
+# in der Dashboard-Karte (CALL_OUTCOME_VOICEMAIL). Vollständiger Pfad:
+# f"{CALL_MEDIA_URL_BASE}/{config_entry_id}/{call_type}/{call_id}".
+CALL_MEDIA_URL_BASE = "/api/fritzbox_anrufe/call_media"
+
+# --- "Weiterverarbeitung" (optionale Zusatzzeile pro Anruf in der Karte) --
+# Klassifiziert, wie ein einzelner Anruf ausgegangen ist - zusätzlich zur
+# (weiterhin bestehenden) Zuordnung zu genau einem der drei
+# Anruflisten-Sensoren (eingehend/ausgehend/verpasst). Siehe call_log.py
+# für die Klassifizierungslogik und ihre Grenzen (Fehlerbehebung in der
+# README).
+#
+# Eingehend: nur "beantwortet" möglich (per Person angenommen) - Anrufe,
+# die zum Anrufbeantworter gingen oder abgewiesen wurden, zählen seit
+# Version 1.0.3 komplett als "verpasst", nicht mehr als "eingehend".
+CALL_OUTCOME_ANSWERED = "beantwortet"
+# Verpasst: mit aufgenommener Nachricht (Path vorhanden) ODER ohne - die
+# FRITZ!Box-Anrufliste unterscheidet nicht zuverlässig zwischen "vor dem
+# Anrufbeantworter aufgelegt" und "Anrufbeantworter war nicht aktiv/
+# erreichbar"; beide fallen unter CALL_OUTCOME_UNREACHED, bis echte
+# Testdaten eine feinere Unterscheidung erlauben (siehe README).
+CALL_OUTCOME_VOICEMAIL = "anrufbeantworter"
+CALL_OUTCOME_UNREACHED = "nicht_erreicht"
+# Ausgehend: nur Verbindungsdauer > 0 ist zuverlässig auswertbar - eine
+# Unterscheidung zwischen "besetzt" und "niemand nimmt ab" liefert die
+# FRITZ!Box-Anrufliste nicht (siehe README, Fehlerbehebung).
+CALL_OUTCOME_CONNECTED = "verbunden"
+CALL_OUTCOME_NOT_CONNECTED = "nicht_verbunden"
+
 # Konfigurierbare Verlaufstiefe der drei Anruflisten-Sensoren - jeder Typ
 # (eingehend/ausgehend/verpasst) hat seine EIGENEN, unabhängig einstellbaren
 # Optionen (Options-Flow UND bereits bei der Erst-Einrichtung).

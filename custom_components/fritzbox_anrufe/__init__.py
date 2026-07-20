@@ -31,7 +31,7 @@ from .const import (
     PLATFORMS,
     SERIAL_NUMBER,
 )
-from .http import FritzBoxTamMediaView
+from .http import FritzBoxCallMediaView, FritzBoxTamMediaView
 from .tam import FritzTam
 from .voicemail import FritzTamCoordinator
 
@@ -192,11 +192,18 @@ _TAM_VIEW_REGISTERED_KEY = f"{DOMAIN}_tam_view_registered"
 
 
 def _async_register_tam_view(hass: HomeAssistant) -> None:
-    """Register the authenticated TAM-audio proxy view, at most once."""
+    """Register the authenticated audio-proxy views, at most once.
+
+    Two views share the same underlying download mechanism (see
+    FritzBoxCallMediaView's docstring in http.py): one for the
+    Anrufbeantworter-Sensor's own message list, one for a recording linked
+    from a call-list entry's "Weiterverarbeitung" row (since v1.0.3).
+    """
     if hass.data.get(_TAM_VIEW_REGISTERED_KEY):
         return
     hass.data[_TAM_VIEW_REGISTERED_KEY] = True
     hass.http.register_view(FritzBoxTamMediaView())
+    hass.http.register_view(FritzBoxCallMediaView())
 
 
 def _async_reserve_entity_ids(hass: HomeAssistant, config_entry: ConfigEntry, unique_id: str) -> None:

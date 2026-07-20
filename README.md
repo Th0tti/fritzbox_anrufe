@@ -157,7 +157,38 @@ Historie.
 
 Jeder Eintrag in `calls` enthält: `type`, `date` (ISO-Zeitstempel), `name`
 (aus dem Telefonbuch oder vom FRITZ!Box-Anruflisteneintrag), `number`,
-`own_number`, `device`, `duration`, `vip` (Telefonbuch-Kategorie "wichtig").
+`own_number`, `device`, `duration`, `vip` (Telefonbuch-Kategorie "wichtig"),
+sowie seit Version 1.0.3 zusätzlich `outcome` und `media_url`:
+
+- `outcome` beschreibt, wie der Anruf konkret ausgegangen ist (feiner als
+  `type`): `beantwortet` (eingehend, von einer Person angenommen),
+  `anrufbeantworter` (an den Anrufbeantworter weitergeleitet, Nachricht
+  aufgezeichnet - zählt seit 1.0.3 zu `verpasst`, siehe unten),
+  `nicht_erreicht` (verpasst, ohne aufgezeichnete Nachricht - fasst sowohl
+  "vor dem Anrufbeantworter aufgelegt" als auch "Anrufbeantworter erreicht,
+  aber keine Nachricht hinterlassen" zusammen, siehe
+  [Bekannte Einschränkungen](#bekannte-einschränkungen)), `verbunden`
+  (ausgehend, Gespräch zustande gekommen) sowie `nicht_verbunden` (ausgehend,
+  keine Verbindung - fasst "besetzt" und "niemand nimmt ab" zusammen,
+  ebenfalls siehe [Bekannte Einschränkungen](#bekannte-einschränkungen)).
+  Wird von der Dashboard-Karte für die optionale
+  "Weiterverarbeitung"-Zeile ausgewertet (siehe
+  [Dashboard-Karte](#dashboard-karte)).
+- `media_url` ist gesetzt, sobald zu diesem Anruf eine Anrufbeantworter-
+  Aufnahme vorliegt (`outcome: anrufbeantworter`) - eine Home-Assistant-
+  interne, authentifizierte URL, über die die Aufnahme direkt im Browser
+  abgespielt werden kann, analog zu `media_url` bei
+  `messages` (siehe unten).
+
+**Verhaltensänderung ab Version 1.0.3:** Ein eingehender Anruf, der an den
+Anrufbeantworter weitergeleitet wurde (unabhängig davon, ob dabei eine
+Nachricht aufgezeichnet wurde), zählt jetzt zu `fritzbox_anrufe_verpasst`
+statt zu `fritzbox_anrufe_eingehend` - `eingehend` enthält damit nur noch
+tatsächlich von einer Person angenommene Anrufe. Das entspricht der
+Kategorisierung, die auch die FRITZ!Box-Weboberfläche selbst verwendet.
+Zusätzlich werden seit 1.0.3 auch von der FRITZ!Box selbst abgewiesene
+Anrufe (z. B. per Rufnummernblockierung) korrekt als `verpasst` erfasst -
+zuvor erschienen solche Anrufe in keinem der drei Verlaufs-Sensoren.
 
 Der Live-Sensor liefert je nach Zustand u. a. `from`/`to`/`with`,
 `from_name`/`to_name`/`with_name`, `device`, `duration`, `vip`.
@@ -261,6 +292,10 @@ show_device: true
 show_duration: true
 show_date: true
 show_vip: true
+show_processing_alle: false
+show_processing_eingehend: false
+show_processing_ausgehend: false
+show_processing_verpasst: false
 ```
 
 **Grafischer Editor:** Statt die Karte per YAML zu konfigurieren, kann sie
@@ -283,6 +318,35 @@ auch aus der "Alle"/"Gesamt"-Sammelansicht herausgerechnet.
 **Spalten:** Sieben weitere Schalter (`show_name`, `show_number`,
 `show_own_number`, `show_device`, `show_duration`, `show_date`, `show_vip`)
 blenden einzelne Spalten der Anrufliste ein oder aus.
+
+### Weiterverarbeitung (seit Version 1.0.3, optional)
+
+Vier weitere Schalter (`show_processing_eingehend`, `show_processing_ausgehend`,
+`show_processing_verpasst`, `show_processing_alle`) blenden - standardmäßig
+deaktiviert, damit bestehende Dashboards nach einem Update optisch
+unverändert bleiben - pro Kategorie eine zusätzliche Zeile unter jedem
+Anruf ein, die zeigt, wie der Anruf konkret ausgegangen ist (Pfeil-Symbol +
+Icon + Beschriftung, ausgewertet aus dem neuen `outcome`-Feld, siehe
+[Sensoren](#sensoren)). `show_processing_alle` steuert diese Zeile
+unabhängig von den drei Einzelschaltern auf dem gemeinsamen "Alle"/"Gesamt"-
+Tab.
+
+| `outcome` | Icon | Bedeutung | Klick |
+| --- | --- | --- | --- |
+| `beantwortet` | grüner Telefonhörer (`mdi:phone-check`) | Eingehender Anruf wurde angenommen | wechselt zum Tab "Eingehend" |
+| `verbunden` | grüner Telefonhörer (`mdi:phone-check`) | Ausgehender Anruf kam zustande | wechselt zum Tab "Ausgehend" |
+| `nicht_verbunden` | durchgestrichener Hörer (`mdi:phone-remove`) | Ausgehender Anruf kam nicht zustande (besetzt oder niemand nimmt ab - nicht unterscheidbar, siehe [Bekannte Einschränkungen](#bekannte-einschränkungen)) | wechselt zum Tab "Ausgehend" |
+| `nicht_erreicht` | roter, durchgestrichener Hörer (`mdi:phone-missed`) | Verpasster Anruf ohne aufgezeichnete Nachricht | wechselt zum Tab "Verpasst" |
+| `anrufbeantworter` | Play-Symbol (`mdi:play-circle-outline`) | Anrufbeantworter hat eine Nachricht aufgezeichnet | spielt die Aufnahme **direkt inline** ab (kein Tab-Wechsel) - technisch identisch zum "Abspielen"-Button im Anrufbeantworter-Tab, siehe unten |
+
+**Experimentell:** Die Direktwiedergabe aus der Anrufliste heraus
+(`outcome: anrufbeantworter`) ist eine neue, eigene Funktion seit 1.0.3 und
+nutzt zwar denselben, an echter Hardware bestätigten Downloadmechanismus wie
+der Anrufbeantworter-Tab, wurde als eigener Codepfad aber noch **nicht**
+separat an echter Hardware verifiziert. Funktioniert die Wiedergabe im
+Anrufbeantworter-Tab, aber nicht über diese Weiterverarbeitungs-Zeile, bitte
+mit dem HTTP-Statuscode aus dem Home-Assistant-Log als GitHub-Issue melden
+(siehe [Fehlerbehebung](#fehlerbehebung)).
 
 ### Wiedergabe der Anrufbeantworter-Nachrichten
 
@@ -384,9 +448,54 @@ die dortigen Maintainer den Fehler beheben.
   Streaming/Caching. Aus demselben Grund ist bewusst ein "Abspielen"-Button
   statt eines direkt befüllten `<audio src="...">` verbaut - siehe
   [Wiedergabe der Anrufbeantworter-Nachrichten](#wiedergabe-der-anrufbeantworter-nachrichten).
+- **Ausgehende Anrufe - kein "besetzt"-Signal**: Die FRITZ!Box-Anrufliste
+  liefert für ausgehende Anrufe keine eigene, von "niemand nimmt ab"
+  unterscheidbare Kennung für "besetzt" - beide Fälle zeigen sich
+  ausschließlich als Verbindungsdauer 0. `outcome` fasst sie deshalb bewusst
+  zu einem gemeinsamen `nicht_verbunden` zusammen (siehe
+  [Sensoren](#sensoren)); mehrere unabhängige Quellen (u. a. AVMs eigene
+  Dokumentation sowie die FHEM-Callmonitor-Implementierung) bestätigen, dass
+  ein solches Feld in den von diesem Integrationsweg (TR-064/`GetCallList`)
+  gelieferten Daten schlicht nicht existiert.
+- **Verpasste Anrufe - eine noch unbestätigte Detailunterscheidung**:
+  Innerhalb `outcome: nicht_erreicht` lässt sich (bislang) nicht
+  unterscheiden, ob der Anrufer schon vor dem Start des Anrufbeantworters
+  aufgelegt hat oder ob der Anrufbeantworter zwar erreicht, aber keine
+  Nachricht hinterlassen wurde - beide Fälle liefern in der Anrufliste
+  identische `Type`/`Path`-Werte, eine dritte, öffentlich dokumentierte
+  Kennung dafür konnte nicht gefunden werden. Ab Version 1.0.3 protokolliert
+  die Integration bei aktiviertem Debug-Logging
+  (`custom_components.fritzbox_anrufe`, siehe
+  [Fehlerbehebung](#fehlerbehebung)) die Rohdaten jedes Anrufs mitsamt
+  berechnetem `outcome` - wer beide Szenarien gezielt nachstellt und die
+  entsprechenden Log-Zeilen als GitHub-Issue meldet, hilft dabei, diese
+  Unterscheidung in einer zukünftigen Version präzise nachzurüsten.
 
 ## Versionshistorie
 
+- **1.0.3b0** (Vorabversion): Eingehende Anrufe, die an den
+  Anrufbeantworter weitergeleitet wurden, zählen jetzt zu "Verpasste
+  Anrufe" statt zu "Eingehende Anrufe" (entspricht der Kategorisierung der
+  FRITZ!Box-Weboberfläche selbst); von der FRITZ!Box selbst abgewiesene
+  Anrufe (`REJECTED_CALL_TYPE`, z. B. per Rufnummernblockierung) erscheinen
+  jetzt korrekt als "Verpasst" statt in keinem Sensor - behebt einen
+  gemeldeten Fall, in dem ein solcher Anruf komplett unsichtbar blieb.
+  Jeder Anruf-Eintrag hat jetzt zusätzlich ein `outcome`-Feld (feinere
+  Klassifizierung: `beantwortet`/`anrufbeantworter`/`nicht_erreicht`/
+  `verbunden`/`nicht_verbunden`, siehe [Sensoren](#sensoren)) sowie bei
+  Anrufbeantworter-Nachrichten ein `media_url`-Feld. Neue, optionale
+  "Weiterverarbeitung"-Zeile auf der Dashboard-Karte (vier neue
+  `show_processing_*`-Schalter, standardmäßig aus) zeigt diesen Ausgang pro
+  Anruf mit Icon und verlinkt zum passenden Tab bzw. spielt bei einer
+  aufgezeichneten Nachricht die Aufnahme direkt inline ab - siehe
+  [Weiterverarbeitung](#weiterverarbeitung-seit-version-103-optional).
+  Zwei bewusste, dokumentierte Einschränkungen (kein "besetzt"-Signal bei
+  ausgehenden Anrufen; keine feinere Unterscheidung innerhalb "nicht
+  erreicht") sowie eine neue, noch nicht separat an echter Hardware
+  bestätigte Direktwiedergabe-Funktion aus der Anrufliste heraus - siehe
+  jeweils [Bekannte Einschränkungen](#bekannte-einschränkungen). Neues
+  temporäres Debug-Logging hilft, Rohdaten für die offene Detailfrage zu
+  sammeln (siehe [Fehlerbehebung](#fehlerbehebung)).
 - **1.0.2**: Fix für "Dashboard-Karte wird nicht gefunden" bzw.
   "Konfigurationsfehler: Custom-Element ist im Frontend unbekannt" trotz
   fehlerfrei geladener Integration und vorhandener Kartendatei - betraf
@@ -519,3 +628,28 @@ die dortigen Maintainer den Fehler beheben.
   vollständig neu starten und Browser-Cache leeren (Strg+Shift+R). Bis auf
   15 Zeilen per Schieberegler einstellbar; höhere Werte weiterhin über den
   YAML-Editor der Karte möglich.
+- **Debug-Logging aktivieren** (z. B. um Rohdaten für die offene
+  "nicht_erreicht"-Detailfrage zu sammeln, siehe
+  [Bekannte Einschränkungen](#bekannte-einschränkungen)): entweder unter
+  Einstellungen → Geräte & Dienste → FRITZ!Box Anrufe → Drei-Punkte-Menü (⋮)
+  → "Debug-Protokollierung aktivieren", oder dauerhaft per
+  `configuration.yaml`:
+  ```yaml
+  logger:
+    logs:
+      custom_components.fritzbox_anrufe: debug
+  ```
+  Jeder Anruf erscheint danach im Home-Assistant-Log mit seinen Rohdaten
+  (`Id`, `Type`, `Path`, `Duration`, `Date`) sowie dem daraus berechneten
+  `bucket`/`outcome` - beim Melden eines Falls bitte diese Zeile(n)
+  zusammen mit einer kurzen Beschreibung des tatsächlichen Anrufverlaufs
+  (z. B. "vor dem Anrufbeantworter aufgelegt" vs. "Ansage gehört, aber
+  nichts gesagt") als GitHub-Issue mitschicken.
+- **Weiterverarbeitungs-Zeile spielt Aufnahme nicht ab** (Symbol zeigt
+  Fehler, obwohl die Wiedergabe im Anrufbeantworter-Tab funktioniert): Diese
+  neue Direktwiedergabe aus der Anrufliste heraus wurde noch nicht separat
+  an echter Hardware bestätigt (siehe
+  [Weiterverarbeitung](#weiterverarbeitung-seit-version-103-optional)).
+  Bitte den HTTP-Statuscode aus dem Home-Assistant-Log
+  (`custom_components.fritzbox_anrufe.http`, Meldung "Fehler beim Abrufen
+  der Anruf-Aufnahme ...") als GitHub-Issue melden.

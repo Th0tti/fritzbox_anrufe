@@ -37,6 +37,24 @@
  * integration (see custom_components/fritzbox_anrufe/__init__.py) - no
  * manual Lovelace resource registration needed.
  *
+ * "Weiterverarbeitung" (since v1.0.3, optional, off by default): an extra
+ * status row per call, shown beneath its normal row when the matching
+ * show_processing_* toggle is on. Shows how the call was resolved
+ * (call.outcome, computed server-side - see call_log.py:_classify_call)
+ * as an arrow + icon. For eingehend/ausgehend/verpasst it links to that
+ * outcome's most relevant tab (e.g. a "verpasst" entry with a recorded
+ * message links to "Anrufbeantworter"); for a recorded message it instead
+ * plays the recording directly, inline, the same way the Anrufbeantworter
+ * tab's own "Abspielen" button does. show_processing_alle controls the
+ * same row on the combined "Alle" tab independently of the three
+ * per-category toggles. See PROCESSING_META below for the exact
+ * icon/label/target mapping, and the README's Fehlerbehebung section for
+ * known limitations (the FRITZ!Box call list cannot reliably distinguish
+ * "besetzt" from "niemand nimmt ab", nor "vor dem Anrufbeantworter
+ * aufgelegt" from "Anrufbeantworter erreicht, aber keine Nachricht
+ * hinterlassen" - both pairs collapse into one shared outcome each for
+ * now).
+ *
  * Example card configuration (YAML):
  *
  *   type: custom:fritzbox-anrufe-card
@@ -59,6 +77,10 @@
  *   show_duration: true
  *   show_date: true
  *   show_vip: true
+ *   show_processing_alle: false
+ *   show_processing_eingehend: false
+ *   show_processing_ausgehend: false
+ *   show_processing_verpasst: false
  */
 
 const FILTER_ALL = "alle";
@@ -92,6 +114,45 @@ const LIVE_STATE_LABELS = {
 // banner instead of displaying garbage.
 const LIVE_ACTIVE_STATES = new Set(Object.keys(LIVE_STATE_LABELS));
 
+// "Weiterverarbeitung"-Zeile (seit v1.0.3, siehe Moduldoku oben): Zuordnung
+// call.outcome (server-seitig berechnet, siehe call_log.py:_classify_call)
+// -> Icon/Beschriftung/Farbe/Ziel-Tab. "playable" statt "tab": Klick spielt
+// die verlinkte Aufnahme direkt ab, statt nur den Tab zu wechseln - siehe
+// _renderProcessingRow()/playCallRecording().
+const PROCESSING_META = {
+  beantwortet: {
+    icon: "mdi:phone-check",
+    label: "Angenommen",
+    color: "var(--success-color, #4caf50)",
+    tab: "eingehend",
+  },
+  verbunden: {
+    icon: "mdi:phone-check",
+    label: "Verbunden",
+    color: "var(--success-color, #4caf50)",
+    tab: "ausgehend",
+  },
+  nicht_verbunden: {
+    icon: "mdi:phone-remove",
+    label: "Nicht verbunden",
+    color: "var(--error-color, #db4437)",
+    tab: "ausgehend",
+  },
+  nicht_erreicht: {
+    icon: "mdi:phone-missed",
+    label: "Nicht erreicht",
+    color: "var(--error-color, #db4437)",
+    tab: "verpasst",
+  },
+  anrufbeantworter: {
+    icon: "mdi:play-circle-outline",
+    label: "Anrufbeantworter-Nachricht abspielen",
+    color: "var(--primary-color, #03a9f4)",
+    tab: "anrufbeantworter",
+    playable: true,
+  },
+};
+
 const CONFIG_DEFAULTS = {
   title: "FRITZ!Box Anrufe",
   max_rows: 10,
@@ -112,6 +173,13 @@ const CONFIG_DEFAULTS = {
   show_duration: true,
   show_date: true,
   show_vip: true,
+  // "Weiterverarbeitung"-Zeile je Kategorie einzeln ein-/ausblendbar -
+  // standardmäßig aus, damit bestehende Dashboards nach einem Update
+  // optisch unverändert bleiben (siehe Moduldoku oben).
+  show_processing_alle: false,
+  show_processing_eingehend: false,
+  show_processing_ausgehend: false,
+  show_processing_verpasst: false,
 };
 
 function withDefaults(config) {
@@ -258,6 +326,29 @@ const VOICEMAIL_ROWS_STYLES = `
   }
 `;
 
+// --- "Weiterverarbeitung"-Zeile (seit v1.0.3) --------------------------
+const PROCESSING_ROW_STYLES = `
+  .row-processing {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 2px 0 6px 30px;
+    padding: 2px 8px;
+    font-size: 0.8em;
+    color: var(--secondary-text-color, #727272);
+  }
+  .row-processing.clickable {
+    cursor: pointer;
+    border-radius: 6px;
+  }
+  .row-processing.clickable:hover {
+    background: var(--secondary-background-color, rgba(0, 0, 0, 0.04));
+  }
+  .row-processing-arrow { opacity: 0.6; }
+  .row-processing ha-icon { --mdc-icon-size: 18px; }
+  .row-processing-player { height: 28px; }
+`;
+
 /**
  * Download one message's audio via the authenticated fetch API exposed to
  * custom cards (hass.fetchWithAuth), turn it into a blob object URL, and
@@ -291,6 +382,44 @@ async function playVoicemail(hass, button, onObjectUrlCreated) {
     console.error("fritzbox_anrufe: Anrufbeantworter-Wiedergabe fehlgeschlagen", err);
     button.disabled = false;
     button.innerHTML = `<ha-icon icon="mdi:alert-circle-outline"></ha-icon><span>Fehler – erneut versuchen</span>`;
+  }
+}
+
+/**
+ * Same idea as playVoicemail() above, but for a "Weiterverarbeitung" row
+ * (see PROCESSING_META) linked from a call-list entry rather than the
+ * Anrufbeantworter tab's own message list - reuses the identical
+ * hass.fetchWithAuth()-to-blob-object-URL approach, just swapping the
+ * *whole* row's content (arrow+icon+label) for the <audio> element instead
+ * of a dedicated player slot next to a button.
+ */
+async function playCallRecording(hass, rowEl, onObjectUrlCreated) {
+  const mediaUrl = rowEl.dataset.mediaUrl;
+  if (!mediaUrl || !hass || !hass.fetchWithAuth) return;
+
+  rowEl.classList.remove("clickable");
+  rowEl.innerHTML = `<ha-icon icon="mdi:loading"></ha-icon><span>Lädt …</span>`;
+
+  try {
+    const response = await hass.fetchWithAuth(mediaUrl);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    if (onObjectUrlCreated) onObjectUrlCreated(objectUrl);
+
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.autoplay = true;
+    audio.className = "row-processing-player";
+    audio.src = objectUrl;
+    rowEl.replaceChildren(audio);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("fritzbox_anrufe: Wiedergabe über die Weiterverarbeitungs-Zeile fehlgeschlagen", err);
+    rowEl.classList.add("clickable");
+    rowEl.innerHTML = `<ha-icon icon="mdi:alert-circle-outline"></ha-icon><span>Fehler – erneut versuchen</span>`;
   }
 }
 
@@ -451,6 +580,45 @@ class FritzboxAnrufeCard extends HTMLElement {
     return (FILTER_META[type] && FILTER_META[type].icon) || "mdi:phone";
   }
 
+  // Ob die "Weiterverarbeitung"-Zeile für einen Anruf des gegebenen
+  // Anruflisten-Typs gezeigt werden soll. Auf der "Alle"-Sammelansicht
+  // entscheidet ausschließlich show_processing_alle (Punkt 6) - unabhängig
+  // vom eigentlichen Typ des jeweiligen Anrufs; auf einer einzelnen
+  // Kategorie-Ansicht (eingehend/ausgehend/verpasst) der jeweils passende
+  // show_processing_<typ>-Schalter (Punkte 3-5).
+  _processingEnabledFor(callType) {
+    if (this._activeFilter === FILTER_ALL) {
+      return !!this._config.show_processing_alle;
+    }
+    return !!this._config[`show_processing_${callType}`];
+  }
+
+  _renderProcessingRow(call) {
+    if (!this._processingEnabledFor(call.type)) return "";
+    const meta = PROCESSING_META[call.outcome];
+    // Kein bekannter/gemappter outcome (z. B. noch nicht aktualisierter
+    // Sensor-Zustand vor einem Neustart nach dem Update) - Zeile einfach
+    // weglassen statt ein kaputtes Icon zu zeigen.
+    if (!meta) return "";
+
+    const canPlay = !!(meta.playable && call.media_url);
+    const attrs = [
+      canPlay ? `data-media-url="${escapeHtml(call.media_url)}"` : "",
+      meta.tab ? `data-target-tab="${escapeHtml(meta.tab)}"` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const clickable = canPlay || !!meta.tab;
+
+    return `
+      <div class="row-processing ${clickable ? "clickable" : ""}" ${attrs} title="${escapeHtml(meta.label)}">
+        <span class="row-processing-arrow" aria-hidden="true">↳</span>
+        <ha-icon icon="${meta.icon}" style="color: ${meta.color};"></ha-icon>
+        <span class="row-processing-label">${escapeHtml(meta.label)}</span>
+      </div>
+    `;
+  }
+
   _renderLiveBanner() {
     if (!this._isLiveActive()) return "";
     const stateObj = this._liveStateObj();
@@ -537,6 +705,7 @@ class FritzboxAnrufeCard extends HTMLElement {
               ${cfg.show_device && call.device ? `<span class="row-device">${escapeHtml(call.device)}</span>` : ""}
             </div>
           </div>
+          ${this._renderProcessingRow(call)}
         `
           )
           .join("")}
@@ -591,6 +760,23 @@ class FritzboxAnrufeCard extends HTMLElement {
       btn.addEventListener("click", () =>
         playVoicemail(this._hass, btn, (url) => this._objectUrls.push(url))
       );
+    });
+
+    this.shadowRoot.querySelectorAll(".row-processing.clickable").forEach((row) => {
+      row.addEventListener("click", () => {
+        // Once playback has started the row holds a native <audio> element -
+        // let its own controls handle further clicks instead of re-triggering.
+        if (row.querySelector("audio")) return;
+        if (row.dataset.mediaUrl) {
+          playCallRecording(this._hass, row, (url) => this._objectUrls.push(url));
+          return;
+        }
+        if (row.dataset.targetTab) {
+          this._activeFilter = row.dataset.targetTab;
+          this._lastSignature = this._computeSignature();
+          this._render();
+        }
+      });
     });
   }
 
@@ -694,6 +880,7 @@ class FritzboxAnrufeCard extends HTMLElement {
       }
 
       ${VOICEMAIL_ROWS_STYLES}
+      ${PROCESSING_ROW_STYLES}
 
       /* --- Responsive: schmale Ansicht (Smartphone) --- */
       @media (max-width: 500px) {
@@ -735,6 +922,10 @@ const EDITOR_LABELS = {
   show_duration: "Dauer anzeigen",
   show_date: "Datum/Uhrzeit anzeigen",
   show_vip: "VIP-Markierung anzeigen",
+  show_processing_alle: "Weiterverarbeitung auf 'Gesamt' anzeigen",
+  show_processing_eingehend: "Weiterverarbeitung bei 'Eingehend' anzeigen",
+  show_processing_ausgehend: "Weiterverarbeitung bei 'Ausgehend' anzeigen",
+  show_processing_verpasst: "Weiterverarbeitung bei 'Verpasst' anzeigen",
 };
 
 function computeEditorLabel(schemaItem) {
@@ -767,6 +958,10 @@ const EDITOR_SCHEMA = [
   { name: "show_duration", selector: { boolean: {} } },
   { name: "show_date", selector: { boolean: {} } },
   { name: "show_vip", selector: { boolean: {} } },
+  { name: "show_processing_alle", selector: { boolean: {} } },
+  { name: "show_processing_eingehend", selector: { boolean: {} } },
+  { name: "show_processing_ausgehend", selector: { boolean: {} } },
+  { name: "show_processing_verpasst", selector: { boolean: {} } },
 ];
 
 class FritzboxAnrufeCardEditor extends HTMLElement {
