@@ -10,7 +10,7 @@ from time import sleep
 from typing import Any, cast, override
 
 from fritzconnection.core.fritzmonitor import FritzMonitor
-from fritzconnection.lib.fritzcall import Call
+from fritzconnection.lib.fritzcall import OUT_CALL_TYPE, Call
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import CONF_HOST, CONF_PORT, EVENT_HOMEASSISTANT_STOP
@@ -26,6 +26,7 @@ from .call_log import FritzCallLogCoordinator
 from .const import (
     ATTR_PREFIXES,
     CALL_MEDIA_URL_BASE,
+    CALL_OUTCOME_NOT_CONNECTED,
     CALL_TYPE_LIVE,
     CALL_TYPE_OUTGOING,
     CALL_TYPE_VOICEMAIL,
@@ -256,6 +257,36 @@ class FritzBoxCallSensor(SensorEntity):
         if self._tam_coordinator is not None:
             await self._tam_coordinator.async_request_refresh()
 
+    def record_failed_outgoing_call(self, pending: Mapping[str, str]) -> None:
+        """Build and hand off a synthetic Call for a failed outgoing dial.
+
+        Called by FritzBoxCallMonitor._parse() (same background thread as
+        set_state()/_schedule_post_call_refresh() above) when a DISCONNECT
+        arrives for a ConnectionID that reached CALL (dialing) but never
+        CONNECT (talking) - i.e. an outgoing call that was busy, unanswered,
+        or cancelled before pickup. Per Thorsten (confirmed on his own
+        FRITZ!Box): such attempts never appear in the FRITZ!Box's own
+        TR-064 call list at all, even with a zero duration - an outgoing
+        call is only logged there once a connection was actually
+        established. add_synthetic_outgoing_call() itself is a plain,
+        lock-protected append, safe to call directly from this thread - see
+        call_log.py for how it's merged into the "ausgehend" bucket on the
+        next _fetch_calls() (including the already-scheduled post-call
+        refresh triggered by set_state() for this very same DISCONNECT).
+        """
+        call = Call()
+        call.Id = f"live-{pending['raw_date']}-{pending['number']}"
+        call.Type = str(OUT_CALL_TYPE)
+        call.Date = pending["call_date"]
+        call.Duration = "0:00"
+        call.Caller = pending["own_number"]
+        call.Called = pending["number"]
+        call.Device = pending["device"]
+        call.Path = None
+        call.outcome = CALL_OUTCOME_NOT_CONNECTED
+        call.tam_message = None
+        self._call_log_coordinator.add_synthetic_outgoing_call(call)
+
     def set_attributes(self, attributes: Mapping[str, str | bool]) -> None:
         """Set the state attributes."""
         self._attributes = {**attributes}
@@ -467,6 +498,14 @@ class FritzBoxCallMonitor:
         self.connection: FritzMonitor | None = None
         self.stopped = ThreadingEvent()
         self._sensor = sensor
+        # Dial attempts (CALL events) currently "in flight", keyed by the
+        # callmonitor's own ConnectionID (line[2], stable across CALL ->
+        # CONNECT/DISCONNECT for the same call, and distinct per line so
+        # overlapping calls don't get mixed up) - cleared on CONNECT (the
+        # call succeeded, the FRITZ!Box's own call list will log it
+        # normally) or consumed on DISCONNECT with no prior CONNECT (see
+        # _parse below and FritzBoxCallSensor.record_failed_outgoing_call).
+        self._pending_outgoing: dict[str, dict[str, str]] = {}
 
     def connect(self) -> None:
         """Connect to the Fritz!Box."""
@@ -509,7 +548,15 @@ class FritzBoxCallMonitor:
         line = event.split(";")
         df_in = "%d.%m.%y %H:%M:%S"
         df_out = "%Y-%m-%dT%H:%M:%S"
-        isotime = datetime.strptime(line[0], df_in).strftime(df_out)
+        call_date = datetime.strptime(line[0], df_in)
+        isotime = call_date.strftime(df_out)
+        # Same event timestamp, but reformatted to the minute-precision
+        # "%d.%m.%y %H:%M" the FRITZ!Box's own TR-064 call list uses for
+        # its Date field (see call_log.py:_find_matching_tam_message for
+        # the other place this exact format matters) - used only if this
+        # turns out to be a failed outgoing dial, see FritzState.CALL below.
+        call_date_str = call_date.strftime("%d.%m.%y %H:%M")
+        connection_id = line[2]
         att: dict[str, str | bool]
         if line[1] == FritzState.RING:
             self._sensor.set_state(CallState.RINGING)
@@ -526,6 +573,16 @@ class FritzBoxCallMonitor:
             self._sensor.set_attributes(att)
         elif line[1] == FritzState.CALL:
             self._sensor.set_state(CallState.DIALING)
+            # Remember this dial attempt until we know whether it succeeds
+            # (CONNECT) or not (DISCONNECT with no CONNECT in between) -
+            # see those branches below.
+            self._pending_outgoing[connection_id] = {
+                "own_number": line[4],
+                "number": line[5],
+                "device": line[6],
+                "raw_date": line[0],
+                "call_date": call_date_str,
+            }
             contact = self._sensor.number_to_contact(line[5])
             att = {
                 "type": "outgoing",
@@ -539,6 +596,10 @@ class FritzBoxCallMonitor:
             self._sensor.set_attributes(att)
         elif line[1] == FritzState.CONNECT:
             self._sensor.set_state(CallState.TALKING)
+            # This ConnectionID connected - a dial attempt that reaches
+            # here succeeded, the FRITZ!Box's own call list will log it
+            # normally, so nothing further to track for it.
+            self._pending_outgoing.pop(connection_id, None)
             contact = self._sensor.number_to_contact(line[4])
             att = {
                 "with": line[4],
@@ -550,6 +611,14 @@ class FritzBoxCallMonitor:
             self._sensor.set_attributes(att)
         elif line[1] == FritzState.DISCONNECT:
             self._sensor.set_state(CallState.IDLE)
+            pending = self._pending_outgoing.pop(connection_id, None)
+            if pending is not None:
+                # Reached CALL but never CONNECT for this ConnectionID - a
+                # failed outgoing dial attempt (busy, unanswered, or
+                # cancelled before pickup). See
+                # FritzBoxCallSensor.record_failed_outgoing_call for why
+                # this needs to be synthesized here at all.
+                self._sensor.record_failed_outgoing_call(pending)
             att = {"duration": line[3], "closed": isotime}
             self._sensor.set_attributes(att)
         self._sensor.schedule_update_ha_state()

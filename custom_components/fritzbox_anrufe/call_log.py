@@ -30,6 +30,28 @@ sensor can never see further back than the shared fetch window (90 days by
 default); a "count" mode sensor will show fewer than its configured count
 if there simply weren't that many calls of that type within the shared
 window.
+
+Failed outgoing calls are invisible to TR-064 (since v1.0.3)
+--------------------------------------------------------------
+Per Thorsten, confirmed against his own FRITZ!Box: an outgoing call only
+ever appears in the TR-064 call list once a connection was actually
+established - a busy signal, an unanswered dial, or a call cancelled before
+pickup is not logged there at all, not even with a zero duration (the
+"only duration is derivable, no distinct busy signal" limitation noted
+elsewhere in this codebase turned out to understate the gap - such calls
+are entirely absent, not just ambiguous). The only place such an attempt is
+observable at all is the live call monitor (RING/CALL/CONNECT/DISCONNECT
+events, TCP port 1012) - see ``sensor.py``'s ``FritzBoxCallMonitor``, which
+detects a CALL (dialing) followed by a DISCONNECT with no intervening
+CONNECT and hands a synthetic :class:`~fritzconnection.lib.fritzcall.Call`
+to :meth:`FritzCallLogCoordinator.add_synthetic_outgoing_call`. These are
+buffered in-memory (``_synthetic_outgoing_calls``, thread-safe via
+``_synthetic_outgoing_lock`` since the callmonitor hands them off from its
+own background thread) and merged into the "ausgehend" bucket on every
+``_fetch_calls()``, de-duplicated against the just-downloaded TR-064 data
+by (minute, called number) in case a future FRITZ!OS version ever does log
+them after all. Being in-memory only, they do not survive a Home Assistant
+restart - only attempts observed while this integration is running show up.
 """
 
 from __future__ import annotations
@@ -37,6 +59,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import logging
+from threading import Lock
 
 from fritzconnection.core.exceptions import FritzConnectionException, FritzSecurityError
 from fritzconnection.lib.fritzcall import (
@@ -255,6 +278,13 @@ class FritzCallLogCoordinator(DataUpdateCoordinator[CallLogData]):
         self.config_entry = config_entry
         self._fritz_call = fritz_call
         self._tam_coordinator = tam_coordinator
+        # Failed outgoing dial attempts observed via the live callmonitor -
+        # see the module docstring and add_synthetic_outgoing_call() below.
+        # Appended to from FritzBoxCallMonitor's background thread, read
+        # from _fetch_calls() (an executor job, a different thread again) -
+        # hence the lock, rather than relying on GIL-level atomicity.
+        self._synthetic_outgoing_lock = Lock()
+        self._synthetic_outgoing_calls: list[Call] = []
 
     def _limit_for(self, call_type: str) -> tuple[str, int]:
         """Return (limit_type, value) for one call-list sensor's own option."""
@@ -316,11 +346,58 @@ class FritzCallLogCoordinator(DataUpdateCoordinator[CallLogData]):
             call.tam_message = matched_message
             unsorted_by_type[bucket].append(call)
 
+        # Failed outgoing dial attempts the FRITZ!Box's own TR-064 call
+        # list never logs at all (see module docstring) - merged in here,
+        # de-duplicated by (minute, called number) against what was just
+        # downloaded in case a future FRITZ!OS version does log them after
+        # all, then the combined "ausgehend" bucket is re-sorted by date
+        # (newest first, matching the FRITZ!Box's own list order that
+        # _apply_limit's "count" mode below relies on) since the synthetic
+        # entries were not part of that original, already-sorted download.
+        existing_outgoing_keys = {
+            (call.date, call.Called)
+            for call in unsorted_by_type[CALL_TYPE_OUTGOING]
+            if isinstance(call.date, datetime)
+        }
+        for call in self._pop_synthetic_outgoing_calls():
+            if (call.date, call.Called) in existing_outgoing_keys:
+                continue
+            unsorted_by_type[CALL_TYPE_OUTGOING].append(call)
+        unsorted_by_type[CALL_TYPE_OUTGOING].sort(
+            key=lambda call: call.date if isinstance(call.date, datetime) else datetime.min,
+            reverse=True,
+        )
+
         calls_by_type = {
             call_type: self._apply_limit(calls, call_type)
             for call_type, calls in unsorted_by_type.items()
         }
         return CallLogData(calls_by_type=calls_by_type)
+
+    def add_synthetic_outgoing_call(self, call: Call) -> None:
+        """Record a failed outgoing dial attempt observed via the live callmonitor.
+
+        Thread-safe - called directly from FritzBoxCallMonitor's background
+        thread (see sensor.py:FritzBoxCallSensor.record_failed_outgoing_call),
+        NOT the Home Assistant event loop. Just buffers the call; it is
+        merged into the "ausgehend" bucket on the next _fetch_calls() (see
+        the module docstring for why this exists at all) - typically only
+        a few seconds later, via the post-call refresh already scheduled by
+        set_state() for this same call ending.
+        """
+        with self._synthetic_outgoing_lock:
+            self._synthetic_outgoing_calls.append(call)
+
+    def _pop_synthetic_outgoing_calls(self) -> list[Call]:
+        """Thread-safely prune (to the shared fetch window) and snapshot the buffer."""
+        cutoff = datetime.now() - timedelta(days=SHARED_CALL_LOG_FETCH_DAYS)
+        with self._synthetic_outgoing_lock:
+            self._synthetic_outgoing_calls = [
+                call
+                for call in self._synthetic_outgoing_calls
+                if isinstance(call.date, datetime) and call.date >= cutoff
+            ]
+            return list(self._synthetic_outgoing_calls)
 
     def get_call(self, call_type: str, call_id: str) -> Call | None:
         """Look up one currently-known call by its bucket + raw Id string.

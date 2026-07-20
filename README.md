@@ -153,7 +153,15 @@ Die Verlaufs- und der Anrufbeantworter-Sensor werden **nicht** über den
 Callmonitor befüllt, sondern alle 5 Minuten per TR-064 von der FRITZ!Box
 abgerufen (`X_AVM-DE_OnTel`/`GetCallList` bzw. `X_AVM-DE_TAM1`/
 `GetMessageList`) - der Callmonitor liefert nur Live-Ereignisse, keine
-Historie.
+Historie. Seit Version 1.0.3 löst der Live-Sensor zusätzlich eine gezielte
+Aktualisierung beider Sensoren aus, sobald sein Zustand nach einem
+Klingeln/Wählen/Gespräch wieder auf `idle` wechselt (mit 5 Sekunden
+Verzögerung, damit die FRITZ!Box den neuen Anrufliste-Eintrag bzw. eine
+ggf. aufgezeichnete Nachricht verarbeiten kann) - das deckt auch verpasste
+Anrufe ab, nicht nur tatsächlich geführte Gespräche, und sorgt dafür, dass
+ein Anruf in der Regel binnen weniger Sekunden statt erst nach bis zu 5
+Minuten in den Sensoren erscheint. Die reguläre 5-Minuten-Aktualisierung
+bleibt zusätzlich als Rückfallebene bestehen.
 
 Jeder Eintrag in `calls` enthält: `type`, `date` (ISO-Zeitstempel), `name`
 (aus dem Telefonbuch oder vom FRITZ!Box-Anruflisteneintrag), `number`,
@@ -174,11 +182,34 @@ sowie seit Version 1.0.3 zusätzlich `outcome` und `media_url`:
   Wird von der Dashboard-Karte für die optionale
   "Weiterverarbeitung"-Zeile ausgewertet (siehe
   [Dashboard-Karte](#dashboard-karte)).
+
+  Ein ausgehender Anruf ohne zustande gekommene Verbindung (`nicht_verbunden`)
+  erscheint bei `fritzbox_anrufe_ausgehend` **nicht** über die reguläre
+  TR-064-Abfrage - die FRITZ!Box trägt einen solchen Versuch dort
+  überhaupt nicht ein, selbst nicht mit Dauer 0 (Bestätigung an echter
+  Hardware). Stattdessen erkennt die Integration einen erfolglosen
+  ausgehenden Anruf direkt über den Live-Callmonitor (Zustand wechselt von
+  "Wählen" zurück auf "Idle", ohne zwischenzeitlich "Gespräch läuft" zu
+  erreichen) und trägt ihn selbst in die Liste ein. Das funktioniert nur
+  für Anrufe, die auftreten, während diese Integration läuft - Versuche
+  vor dem letzten Neustart von Home Assistant bzw. vor der Installation
+  dieser Version sind nicht rückwirkend rekonstruierbar.
+
+  Ob ein eingehender Anruf an den Anrufbeantworter weitergeleitet wurde,
+  erkennt die Integration am von der FRITZ!Box selbst gemeldeten
+  "Gerät"-Wert (`device: "Anrufbeantworter"`); ob dabei tatsächlich eine
+  Nachricht aufgezeichnet wurde, wird zusätzlich per Datum/Uhrzeit- (und,
+  falls vorhanden, Rufnummer-)Abgleich mit den echten
+  Anrufbeantworter-Nachrichten bestätigt (nicht mehr nur anhand des
+  call-list-eigenen `Path`-Felds, das dafür nicht immer gesetzt ist).
 - `media_url` ist gesetzt, sobald zu diesem Anruf eine Anrufbeantworter-
   Aufnahme vorliegt (`outcome: anrufbeantworter`) - eine Home-Assistant-
   interne, authentifizierte URL, über die die Aufnahme direkt im Browser
-  abgespielt werden kann, analog zu `media_url` bei
-  `messages` (siehe unten).
+  abgespielt werden kann, analog zu `media_url` bei `messages` (siehe
+  unten). Wurde die zugehörige Anrufbeantworter-Nachricht per Datum/
+  Uhrzeit-Abgleich eindeutig gefunden, zeigt `media_url` direkt auf
+  denselben, bereits an echter Hardware bestätigten Proxy wie beim
+  Anrufbeantworter-Sensor selbst.
 
 **Verhaltensänderung ab Version 1.0.3:** Ein eingehender Anruf, der an den
 Anrufbeantworter weitergeleitet wurde (unabhängig davon, ob dabei eine
@@ -339,11 +370,15 @@ Tab.
 | `nicht_erreicht` | roter, durchgestrichener Hörer (`mdi:phone-missed`) | Verpasster Anruf ohne aufgezeichnete Nachricht | wechselt zum Tab "Verpasst" |
 | `anrufbeantworter` | Play-Symbol (`mdi:play-circle-outline`) | Anrufbeantworter hat eine Nachricht aufgezeichnet | spielt die Aufnahme **direkt inline** ab (kein Tab-Wechsel) - technisch identisch zum "Abspielen"-Button im Anrufbeantworter-Tab, siehe unten |
 
-**Experimentell:** Die Direktwiedergabe aus der Anrufliste heraus
-(`outcome: anrufbeantworter`) ist eine neue, eigene Funktion seit 1.0.3 und
-nutzt zwar denselben, an echter Hardware bestätigten Downloadmechanismus wie
-der Anrufbeantworter-Tab, wurde als eigener Codepfad aber noch **nicht**
-separat an echter Hardware verifiziert. Funktioniert die Wiedergabe im
+**Zur Wiedergabe-Technik:** Konnte die zugehörige Anrufbeantworter-Nachricht
+eindeutig per Datum/Uhrzeit-Abgleich gefunden werden (siehe
+[Sensoren](#sensoren)), nutzt die Direktwiedergabe denselben, bereits an
+echter Hardware bestätigten Proxy wie der Anrufbeantworter-Tab selbst. Nur
+falls kein eindeutiger Treffer gefunden wurde (`call.Path` ist gesetzt, aber
+z. B. der Anrufbeantworter-Sensor hat noch nicht aktualisiert), greift ein
+neuer, eigener Codepfad (`FritzBoxCallMediaView`), der zwar denselben
+Downloadmechanismus verwendet, aber als solcher noch **nicht** separat an
+echter Hardware verifiziert wurde. Funktioniert die Wiedergabe im
 Anrufbeantworter-Tab, aber nicht über diese Weiterverarbeitungs-Zeile, bitte
 mit dem HTTP-Statuscode aus dem Home-Assistant-Log als GitHub-Issue melden
 (siehe [Fehlerbehebung](#fehlerbehebung)).
@@ -448,31 +483,82 @@ die dortigen Maintainer den Fehler beheben.
   Streaming/Caching. Aus demselben Grund ist bewusst ein "Abspielen"-Button
   statt eines direkt befüllten `<audio src="...">` verbaut - siehe
   [Wiedergabe der Anrufbeantworter-Nachrichten](#wiedergabe-der-anrufbeantworter-nachrichten).
-- **Ausgehende Anrufe - kein "besetzt"-Signal**: Die FRITZ!Box-Anrufliste
+- **Ausgehende Anrufe - kein "besetzt"-Signal, und TR-064 kennt erfolglose
+  Versuche gar nicht**: Die FRITZ!Box-Anrufliste (TR-064/`GetCallList`)
   liefert für ausgehende Anrufe keine eigene, von "niemand nimmt ab"
-  unterscheidbare Kennung für "besetzt" - beide Fälle zeigen sich
-  ausschließlich als Verbindungsdauer 0. `outcome` fasst sie deshalb bewusst
-  zu einem gemeinsamen `nicht_verbunden` zusammen (siehe
+  unterscheidbare Kennung für "besetzt" - `outcome` fasst beide deshalb
+  bewusst zu einem gemeinsamen `nicht_verbunden` zusammen (siehe
   [Sensoren](#sensoren)); mehrere unabhängige Quellen (u. a. AVMs eigene
   Dokumentation sowie die FHEM-Callmonitor-Implementierung) bestätigen, dass
-  ein solches Feld in den von diesem Integrationsweg (TR-064/`GetCallList`)
-  gelieferten Daten schlicht nicht existiert.
-- **Verpasste Anrufe - eine noch unbestätigte Detailunterscheidung**:
-  Innerhalb `outcome: nicht_erreicht` lässt sich (bislang) nicht
+  ein solches Feld dort schlicht nicht existiert. Stärker noch: ein
+  erfolgloser ausgehender Anruf (besetzt, niemand nimmt ab, vor Annahme
+  aufgelegt) erscheint über TR-064 überhaupt **nicht** in der Anrufliste -
+  nicht einmal mit Verbindungsdauer 0 - sondern ausschließlich, sobald
+  tatsächlich eine Verbindung zustande kam (an echter Hardware bestätigt).
+  Seit Version 1.0.3 füllt die Integration diese Lücke selbst: der
+  Live-Callmonitor erkennt einen erfolglosen Anruf am Zustandswechsel
+  "Wählen" → "Idle" (ohne "Gespräch läuft" dazwischen) und trägt ihn direkt
+  in den Sensor `fritzbox_anrufe_ausgehend` ein - solche Einträge existieren
+  aber ausschließlich im Arbeitsspeicher von Home Assistant und gehen bei
+  einem Neustart verloren; nur Versuche, die während des laufenden Betriebs
+  dieser Integration auftreten, werden erfasst. Bei zwei praktisch
+  gleichzeitigen ausgehenden Anrufen werden diese anhand der vom Callmonitor
+  gemeldeten ConnectionID sauber auseinandergehalten.
+- **Verpasste Anrufe - eine noch unbestätigte Detailunterscheidung**: Ob ein
+  an den Anrufbeantworter weitergeleiteter Anruf `outcome: anrufbeantworter`
+  oder `outcome: nicht_erreicht` erhält, wird seit Version 1.0.3 per Datum/
+  Uhrzeit- (und, falls vorhanden, Rufnummer-)Abgleich mit den echten
+  Anrufbeantworter-Nachrichten entschieden - deutlich zuverlässiger als das
+  vorher allein ausgewertete `Path`-Feld der Anrufliste. Innerhalb
+  `outcome: nicht_erreicht` lässt sich damit aber weiterhin nicht
   unterscheiden, ob der Anrufer schon vor dem Start des Anrufbeantworters
   aufgelegt hat oder ob der Anrufbeantworter zwar erreicht, aber keine
-  Nachricht hinterlassen wurde - beide Fälle liefern in der Anrufliste
-  identische `Type`/`Path`-Werte, eine dritte, öffentlich dokumentierte
-  Kennung dafür konnte nicht gefunden werden. Ab Version 1.0.3 protokolliert
-  die Integration bei aktiviertem Debug-Logging
+  Nachricht hinterlassen wurde - für beide Fälle existiert schlicht keine
+  aufgezeichnete Nachricht zum Abgleichen, eine öffentlich dokumentierte
+  dritte Kennung dafür konnte nicht gefunden werden. Ab Version 1.0.3
+  protokolliert die Integration bei aktiviertem Debug-Logging
   (`custom_components.fritzbox_anrufe`, siehe
-  [Fehlerbehebung](#fehlerbehebung)) die Rohdaten jedes Anrufs mitsamt
+  [Fehlerbehebung](#fehlerbehebung)) die Rohdaten jedes Anrufs (inkl.
+  `Device` und einer ggf. gefundenen zugehörigen Nachricht) mitsamt
   berechnetem `outcome` - wer beide Szenarien gezielt nachstellt und die
   entsprechenden Log-Zeilen als GitHub-Issue meldet, hilft dabei, diese
   Unterscheidung in einer zukünftigen Version präzise nachzurüsten.
 
 ## Versionshistorie
 
+- **1.0.3b2** (Vorabversion, auf 1.0.3b1 aufbauend): Thorsten stellte fest,
+  dass ein erfolgloser ausgehender Anruf (besetzt, niemand nimmt ab, vor
+  Annahme aufgelegt) über TR-064 überhaupt nicht in der FRITZ!Box-Anrufliste
+  erscheint - anders als bislang angenommen auch nicht mit Verbindungsdauer
+  0, sondern gar nicht, bis eine Verbindung tatsächlich zustande kommt.
+  Seine Idee: das lässt sich stattdessen über den Live-Callmonitor erkennen,
+  am Zustandswechsel "Wählen" zurück auf "Idle" ohne zwischenzeitliches
+  "Gespräch läuft". Genau das setzt diese Version um - solche Anrufe werden
+  jetzt direkt vom Callmonitor erfasst und erscheinen mit `outcome:
+  nicht_verbunden` in `fritzbox_anrufe_ausgehend`, einschließlich sauberer
+  Behandlung zweier gleichzeitiger ausgehender Anrufe (per ConnectionID
+  auseinandergehalten). Bewusste Einschränkung: diese Einträge leben nur im
+  Arbeitsspeicher und gehen bei einem Neustart verloren - siehe
+  [Bekannte Einschränkungen](#bekannte-einschränkungen).
+- **1.0.3b1** (Vorabversion, auf 1.0.3b0 aufbauend): Zwei von Thorsten
+  vorgeschlagene Verbesserungen, basierend auf Beobachtungen an seiner
+  eigenen FRITZ!Box: (1) Ob ein eingehender Anruf an den Anrufbeantworter
+  weitergeleitet wurde, wird jetzt zusätzlich am von der FRITZ!Box selbst
+  gemeldeten Gerät (`device: "Anrufbeantworter"`) erkannt statt nur am
+  `Path`-Feld - behebt einen Fall, in dem ein an den Anrufbeantworter
+  weitergeleiteter Anruf ohne aufgezeichnete Nachricht fälschlich als
+  "Eingehend"/"beantwortet" erschien, als hätte eine Person abgenommen. Ob
+  dabei eine Nachricht aufgezeichnet wurde, wird jetzt per Datum/Uhrzeit-
+  (und ggf. Rufnummer-)Abgleich mit den echten Anrufbeantworter-Nachrichten
+  bestätigt statt nur anhand von `Path` vermutet - deutlich zuverlässiger,
+  und `media_url` zeigt bei einem eindeutigen Treffer direkt auf den
+  bereits bestätigt funktionierenden Anrufbeantworter-Wiedergabeweg statt
+  auf den neuen, ungetesteten. (2) Der Live-Callmonitor-Sensor löst jetzt
+  zusätzlich zur regulären 5-Minuten-Aktualisierung eine gezielte
+  Aktualisierung der Verlaufs- und Anrufbeantworter-Sensoren aus, sobald
+  sein Zustand nach einem Anruf (angenommen oder verpasst) wieder auf
+  `idle` wechselt - ein Anruf erscheint dadurch in der Regel binnen
+  Sekunden statt erst nach bis zu 5 Minuten in den Sensoren.
 - **1.0.3b0** (Vorabversion): Eingehende Anrufe, die an den
   Anrufbeantworter weitergeleitet wurden, zählen jetzt zu "Verpasste
   Anrufe" statt zu "Eingehende Anrufe" (entspricht der Kategorisierung der
