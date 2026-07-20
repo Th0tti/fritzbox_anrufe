@@ -8,7 +8,6 @@ from fritzconnection.core.exceptions import FritzConnectionException, FritzSecur
 from fritzconnection.lib.fritzcall import FritzCall
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
-from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.components.lovelace.const import LOVELACE_DATA
 from homeassistant.config_entries import ConfigEntry
@@ -16,6 +15,7 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import entity_registry as er
+from homeassistant.loader import async_get_integration
 
 from .base import FritzBoxPhonebook
 from .call_log import FritzCallLogCoordinator
@@ -39,13 +39,33 @@ _LOGGER = logging.getLogger(__name__)
 
 # --- Bundled Lovelace card (fritzbox-anrufe-card.js) -----------------------
 #
-# Served directly from this integration's "www" folder. Registered with the
-# frontend TWO ways (see _async_register_frontend_card below) so users do
-# not have to add a Lovelace resource by hand. See www/fritzbox-anrufe-card.js.
+# Served directly from this integration's "www" folder and registered with
+# the frontend through exactly ONE path: a persisted Lovelace resource entry
+# (see _async_ensure_lovelace_resource). Users do not have to add a Lovelace
+# resource by hand. See www/fritzbox-anrufe-card.js.
+#
+# History: an earlier version (<=1.0.2b0) additionally called
+# frontend.add_extra_js_url() to embed a <script type="module"> tag directly
+# into index.html, on top of the Lovelace resource entry, as a belt-and-
+# braces measure. That second path turned out to be actively harmful rather
+# than just redundant: a browser executes a given *module URL* at most once
+# and remembers it as "handled" regardless of whether the load actually
+# succeeded. When the document-embedded load failed (observed with a
+# client-side cached app shell / Companion App WebView, surviving even a
+# full HA restart and a browser hard-reload), the URL was permanently marked
+# as handled - so the Lovelace resource loader could never load it either,
+# even though the resource entry itself was created correctly server-side.
+# Diagnosed and confirmed by a user (marcedale) testing 1.0.2b0: the network
+# tab's Initiator column showed the failed load attributed to the
+# add_extra_js_url() path, while every other, reliably-loading card's
+# Initiator was load_resource.ts - the Lovelace resource loader. Removing
+# add_extra_js_url() so the resource entry is the only load path fixed it;
+# confirmed stable across four Companion App restarts and repeated desktop
+# hard-reloads afterwards.
 _CARD_URL_BASE = "/fritzbox_anrufe_files"
 _CARD_FILENAME = "fritzbox-anrufe-card.js"
 _CARD_DIR = Path(__file__).parent / "www"
-_CARD_RESOURCE_URL = f"{_CARD_URL_BASE}/{_CARD_FILENAME}"
+_CARD_STATIC_URL = f"{_CARD_URL_BASE}/{_CARD_FILENAME}"
 _FRONTEND_REGISTERED_KEY = f"{DOMAIN}_frontend_registered"
 
 
@@ -57,7 +77,6 @@ async def _async_register_frontend_card(hass: HomeAssistant) -> None:
     """
     if hass.data.get(_FRONTEND_REGISTERED_KEY):
         return
-    hass.data[_FRONTEND_REGISTERED_KEY] = True
 
     try:
         await hass.http.async_register_static_paths(
@@ -67,48 +86,51 @@ async def _async_register_frontend_card(hass: HomeAssistant) -> None:
         # Already registered (e.g. integration reloaded without a full HA
         # restart) - safe to ignore, the static path is still serving.
         _LOGGER.debug("Static path for %s already registered", _CARD_URL_BASE)
+    except Exception as ex:  # noqa: BLE001 - must not silently wedge setup
+        _LOGGER.warning(
+            "Konnte den statischen Pfad für die Dashboard-Karte (%s) nicht"
+            " registrieren (%s) - die Karte ist ggf. nicht erreichbar. Wird"
+            " beim nächsten Setup erneut versucht.",
+            _CARD_URL_BASE,
+            ex,
+        )
+        return  # don't mark as registered - retry on the next config entry/restart
 
-    # Mechanism 1: add_extra_js_url() injects a <script type="module"> tag
-    # directly into Home Assistant's (cached) index.html - the commonly used
-    # way for a custom integration to auto-load a bundled Lovelace card
-    # without a manual resource entry. This has been reported to silently
-    # not reach the browser at all on some HA/browser/companion-app
-    # combinations (no request attempted for the card file, not even a
-    # 404) - most likely because the frontend's cached app shell (service
-    # worker on desktop, WebView cache in the companion app) was already
-    # populated before this integration added its URL, and neither a full
-    # Home Assistant restart nor a normal browser hard-reload is guaranteed
-    # to invalidate a client-side cached shell. Kept as-is since it's cheap
-    # and still helps on setups where it does work.
-    add_extra_js_url(hass, _CARD_RESOURCE_URL)
-
-    # Mechanism 2 (added as a fix for the above): also register a real,
-    # persisted Lovelace resource - exactly what manually adding the URL
-    # under Settings -> Dashboards -> Resources does, and confirmed to work
-    # reliably even when mechanism 1 silently didn't. A resource entry is
-    # looked up dynamically by the frontend at dashboard-render time (via
-    # the stored resource list), not baked into the cached index.html, so
-    # it is unaffected by the stale-shell-caching problem above.
+    # Register (or update) the single, persisted Lovelace resource entry -
+    # see the module comment above for why this is now the only load path.
     await _async_ensure_lovelace_resource(hass)
+
+    # Only mark as done once every step above has at least been attempted -
+    # if something above fails hard before this point, the whole block is
+    # retried on the next config-entry setup / restart instead of being
+    # silently skipped forever for the lifetime of this running instance.
+    hass.data[_FRONTEND_REGISTERED_KEY] = True
 
 
 async def _async_ensure_lovelace_resource(hass: HomeAssistant) -> None:
-    """Best-effort: register the card as a real, persisted Lovelace resource.
+    """Register (or update) the card as the persisted Lovelace resource entry.
 
-    Quietly does nothing if Lovelace isn't set up (yet), is running in
+    The resource URL carries a `?v=<integration version>` query parameter,
+    matching how HACS itself cache-busts its own managed resources (with a
+    `?hacstag=...` parameter) - without it, browsers/companion apps can keep
+    serving a stale cached copy of the module after an update. An existing
+    entry is looked up by the URL *without* the query string and updated in
+    place if the version changed, so an update never leaves a stale
+    duplicate resource entry behind.
+
+    Quietly does nothing if Lovelace isn't set up (yet), or is running in
     YAML mode (resources are then read-only and must be added manually to
-    configuration.yaml - see README), or the resource is already present
-    (idempotent across restarts, since this runs again on every restart).
-    Never raises - a failure here must not break the rest of the
-    integration, the card still works via add_extra_js_url() or a manual
-    resource entry either way.
+    configuration.yaml - see README). Never raises - a failure here must not
+    break the rest of the integration; the card can always be added as a
+    manual resource as a fallback (see README).
     """
     lovelace_data = hass.data.get(LOVELACE_DATA)
     if lovelace_data is None:
         _LOGGER.debug(
             "Lovelace-Daten nicht gefunden - automatischer Ressourcen-"
-            "Eintrag für %s übersprungen (add_extra_js_url bleibt aktiv).",
-            _CARD_RESOURCE_URL,
+            "Eintrag für %s übersprungen. Bitte bei Bedarf manuell unter"
+            " Einstellungen -> Dashboards -> Ressourcen eintragen.",
+            _CARD_STATIC_URL,
         )
         return
 
@@ -119,7 +141,7 @@ async def _async_ensure_lovelace_resource(hass: HomeAssistant) -> None:
         _LOGGER.debug(
             "Lovelace läuft im YAML-Modus - bitte %s bei Bedarf manuell als"
             " Ressource (Typ 'module') eintragen, siehe README.",
-            _CARD_RESOURCE_URL,
+            _CARD_STATIC_URL,
         )
         return
 
@@ -127,23 +149,40 @@ async def _async_ensure_lovelace_resource(hass: HomeAssistant) -> None:
         if not getattr(resources, "loaded", True):
             await resources.async_load()
 
-        for item in resources.async_items():
-            if item.get("url") == _CARD_RESOURCE_URL:
-                return  # already registered in an earlier run
+        integration = await async_get_integration(hass, DOMAIN)
+        target_url = f"{_CARD_STATIC_URL}?v={integration.version}"
 
-        await resources.async_create_item(
-            {"res_type": "module", "url": _CARD_RESOURCE_URL}
+        existing = next(
+            (
+                item
+                for item in resources.async_items()
+                if item.get("url", "").split("?", 1)[0] == _CARD_STATIC_URL
+            ),
+            None,
         )
-        _LOGGER.debug(
-            "Lovelace-Ressource für %s automatisch angelegt.",
-            _CARD_RESOURCE_URL,
-        )
+
+        if existing is None:
+            await resources.async_create_item(
+                {"res_type": "module", "url": target_url}
+            )
+            _LOGGER.debug("Lovelace-Ressource für %s automatisch angelegt.", target_url)
+        elif existing.get("url") != target_url:
+            await resources.async_update_item(
+                existing["id"], {"res_type": "module", "url": target_url}
+            )
+            _LOGGER.debug(
+                "Lovelace-Ressource für %s auf %s aktualisiert.",
+                _CARD_STATIC_URL,
+                target_url,
+            )
+        else:
+            _LOGGER.debug("Lovelace-Ressource für %s bereits aktuell.", target_url)
     except Exception as ex:  # noqa: BLE001 - best-effort, must not break setup
         _LOGGER.warning(
             "Konnte %s nicht automatisch als Lovelace-Ressource eintragen"
             " (%s) - bitte bei Bedarf manuell unter Einstellungen ->"
             " Dashboards -> Ressourcen hinzufügen (Typ 'module').",
-            _CARD_RESOURCE_URL,
+            _CARD_STATIC_URL,
             ex,
         )
 
