@@ -80,15 +80,28 @@ CALL_MEDIA_URL_BASE = "/api/fritzbox_anrufe/call_media"
 # für die Klassifizierungslogik und ihre Grenzen (Fehlerbehebung in der
 # README).
 #
+# Der von der FRITZ!Box selbst gemeldete "Gerät"-Wert (Call.Device) für
+# einen an den eingebauten Anrufbeantworter weitergeleiteten Anruf - von
+# Thorsten an echter Hardware bestätigt. Zuverlässigeres Signal für "ging
+# zum Anrufbeantworter" als das bloße Vorhandensein von Call.Path (das bei
+# solchen Anrufen nicht immer gesetzt ist), siehe call_log.py:_classify_call.
+DEVICE_ANSWERING_MACHINE = "Anrufbeantworter"
+
 # Eingehend: nur "beantwortet" möglich (per Person angenommen) - Anrufe,
-# die zum Anrufbeantworter gingen oder abgewiesen wurden, zählen seit
-# Version 1.0.3 komplett als "verpasst", nicht mehr als "eingehend".
+# die zum Anrufbeantworter gingen (Device == DEVICE_ANSWERING_MACHINE) oder
+# abgewiesen wurden, zählen seit Version 1.0.3 komplett als "verpasst",
+# nicht mehr als "eingehend".
 CALL_OUTCOME_ANSWERED = "beantwortet"
-# Verpasst: mit aufgenommener Nachricht (Path vorhanden) ODER ohne - die
-# FRITZ!Box-Anrufliste unterscheidet nicht zuverlässig zwischen "vor dem
-# Anrufbeantworter aufgelegt" und "Anrufbeantworter war nicht aktiv/
-# erreichbar"; beide fallen unter CALL_OUTCOME_UNREACHED, bis echte
-# Testdaten eine feinere Unterscheidung erlauben (siehe README).
+# Verpasst, mit aufgenommener Nachricht vs. ohne: seit 1.0.3 nicht mehr nur
+# anhand von Call.Path entschieden, sondern zusätzlich anhand eines
+# Datum/Uhrzeit- (und, falls vorhanden, Rufnummer-)Abgleichs mit den
+# tatsächlichen Anrufbeantworter-Nachrichten (siehe
+# call_log.py:_find_matching_tam_message) - ein deutlich verlässlicheres
+# Signal als das call-list-eigene Path-Feld allein. Die FRITZ!Box-Anrufliste
+# unterscheidet dennoch nicht zuverlässig zwischen "vor dem Anrufbeantworter
+# aufgelegt" und "Anrufbeantworter erreicht, aber keine Nachricht
+# hinterlassen" - fehlt eine passende Nachricht, fallen beide Fälle
+# weiterhin unter CALL_OUTCOME_UNREACHED.
 CALL_OUTCOME_VOICEMAIL = "anrufbeantworter"
 CALL_OUTCOME_UNREACHED = "nicht_erreicht"
 # Ausgehend: nur Verbindungsdauer > 0 ist zuverlässig auswertbar - eine
@@ -96,6 +109,17 @@ CALL_OUTCOME_UNREACHED = "nicht_erreicht"
 # FRITZ!Box-Anrufliste nicht (siehe README, Fehlerbehebung).
 CALL_OUTCOME_CONNECTED = "verbunden"
 CALL_OUTCOME_NOT_CONNECTED = "nicht_verbunden"
+
+# --- Zusätzliche Aktualisierung nach einem Gespräch --------------------
+# Neben der regulären 5-Minuten-Pollingintervalle beider Coordinator
+# (CALL_LOG_UPDATE_INTERVAL/TAM_UPDATE_INTERVAL) löst der Live-Callmonitor-
+# Sensor (FritzBoxCallSensor, siehe sensor.py) zusätzlich eine gezielte
+# Aktualisierung aus, sobald sein Zustand nach einem Klingeln/Wählen/
+# Gespräch wieder auf "idle" wechselt - deckt damit auch verpasste Anrufe
+# ab, nicht nur tatsächlich geführte Gespräche. Die kurze Verzögerung gibt
+# der FRITZ!Box Zeit, den Anrufliste-Eintrag zu finalisieren bzw. eine ggf.
+# aufgezeichnete Nachricht zu verarbeiten, bevor abgefragt wird.
+POST_CALL_REFRESH_DELAY_SECONDS: Final = 5
 
 # Konfigurierbare Verlaufstiefe der drei Anruflisten-Sensoren - jeder Typ
 # (eingehend/ausgehend/verpasst) hat seine EIGENEN, unabhängig einstellbaren

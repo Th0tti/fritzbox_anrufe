@@ -68,18 +68,50 @@ from .const import (
     DEFAULT_CALL_LOG_COUNT,
     DEFAULT_CALL_LOG_DAYS,
     DEFAULT_CALL_LOG_LIMIT_TYPE,
+    DEVICE_ANSWERING_MACHINE,
     SHARED_CALL_LOG_FETCH_DAYS,
     conf_call_log_count,
     conf_call_log_days,
     conf_call_log_limit_type,
 )
+from .tam import TamMessage
+from .voicemail import FritzTamCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 CALL_LOG_UPDATE_INTERVAL = timedelta(minutes=5)
 
 
-def _classify_call(call: Call) -> tuple[str | None, str | None]:
+def _find_matching_tam_message(call: Call, tam_messages: list[TamMessage]) -> TamMessage | None:
+    """Find the answering-machine message (if any) this call produced.
+
+    Both ``Call.date`` and ``TamMessage.date`` are minute-precision only -
+    confirmed by inspecting the exact datetime formats each side parses
+    (``fritzconnection``'s own ``datetime_converter`` for ``Call``, this
+    integration's ``_datetime_converter`` in ``tam.py`` for ``TamMessage``:
+    both use ``"%d.%m.%y %H:%M"``, no seconds) - so an exact match on that
+    minute is a meaningful, ground-truth signal that a given call is the one
+    that produced a given recording, rather than trusting the call list's
+    own ``Path`` field in isolation (which is not always populated for such
+    calls). The caller's number is compared too whenever both sides have
+    one, to disambiguate the rare case of two calls landing in the same
+    minute. Per Thorsten's suggestion (based on his own FRITZ!Box), this is
+    what makes CALL_OUTCOME_VOICEMAIL vs. CALL_OUTCOME_UNREACHED trustworthy
+    in practice.
+    """
+    if not isinstance(call.date, datetime):
+        return None
+    caller_number = call.Caller or None
+    for message in tam_messages:
+        if not isinstance(message.date, datetime) or message.date != call.date:
+            continue
+        if caller_number and message.Number and message.Number != caller_number:
+            continue
+        return message
+    return None
+
+
+def _classify_call(call: Call, matched_message: TamMessage | None) -> tuple[str | None, str | None]:
     """Return (bucket, outcome) for one raw Call - see the module docstring.
 
     ``bucket`` is one of CALL_TYPES ("eingehend"/"ausgehend"/"verpasst"), or
@@ -98,20 +130,32 @@ def _classify_call(call: Call) -> tuple[str | None, str | None]:
       not appear under "Verpasste Anrufe" at all before this was added - it
       was simply invisible to all three sensors.
     - RECEIVED_CALL_TYPE (1) covers BOTH a call answered by a person AND a
-      call that went to the answering machine and recorded a message - AVM
-      groups both under its own "incoming calls" filter and only tells them
-      apart visually (a different icon) based on whether ``Path`` (the
-      recording, if any) is set. Since v1.0.3, this integration follows
-      that same signal to reclassify "went to the answering machine" calls
-      as CALL_TYPE_MISSED instead of CALL_TYPE_INCOMING - "eingehend"
-      therefore only ever contains genuinely person-answered calls.
-    - Within CALL_TYPE_MISSED, whether a message was actually recorded
-      (``Path`` set) is again determined via CALL_OUTCOME_VOICEMAIL vs.
-      CALL_OUTCOME_UNREACHED. The FRITZ!Box call list does not reliably
-      expose a *further* distinction between "caller hung up before the
-      answering machine picked up" and "reached the answering machine's
-      greeting but left no message" - both fall under
-      CALL_OUTCOME_UNREACHED for now. See the module-level
+      call that went to the answering machine (with or without a recorded
+      message) - AVM groups both under its own "incoming calls" filter.
+      Since v1.0.3, this integration tells them apart primarily via
+      ``call.Device`` - confirmed by Thorsten against his own hardware that
+      a call routed to the built-in answering machine reports
+      ``Device == DEVICE_ANSWERING_MACHINE`` regardless of whether a
+      message was actually left. (An earlier v1.0.3 dev build used
+      ``Path`` presence alone for this, which missed the case of a call
+      routed to the AB with nothing recorded - such a call showed as
+      CALL_TYPE_INCOMING/CALL_OUTCOME_ANSWERED, as if a person had
+      answered.) ``has_recording`` (see below) is kept as an additional,
+      independent trigger so a call still reclassifies as "verpasst" even
+      if ``Device`` is ever empty/unexpected but a matching recording
+      exists. "eingehend" therefore only ever contains genuinely
+      person-answered calls.
+    - Within CALL_TYPE_MISSED, whether a message was actually recorded is
+      decided by ``matched_message`` (see ``_find_matching_tam_message``) -
+      a date/time (and, where available, phone-number) match against the
+      real answering-machine message list, a materially stronger signal
+      than the call list's own ``Path`` field alone. ``call.Path`` is kept
+      as an additional fallback trigger (e.g. if the TAM coordinator
+      hasn't polled yet). The FRITZ!Box call list still does not expose a
+      *further* distinction between "caller hung up before the answering
+      machine picked up" and "reached the answering machine's greeting but
+      left no message" - lacking a matched message, both fall under
+      CALL_OUTCOME_UNREACHED. See the module-level
       ``_log_raw_call_for_diagnostics`` debug logging below, added to
       gather real examples of both cases before attempting a finer split.
     - For OUT_CALL_TYPE (3), only connection duration is evaluated: the
@@ -119,11 +163,14 @@ def _classify_call(call: Call) -> tuple[str | None, str | None]:
       distinguishable from a plain unanswered outgoing call - both show as
       zero duration. See README, Fehlerbehebung.
     """
-    has_recording = bool(call.Path)
+    to_answering_machine = (call.Device or "").strip() == DEVICE_ANSWERING_MACHINE
+    has_recording = matched_message is not None or bool(call.Path)
 
     if call.type == RECEIVED_CALL_TYPE:
-        if has_recording:
-            return CALL_TYPE_MISSED, CALL_OUTCOME_VOICEMAIL
+        if to_answering_machine or has_recording:
+            if has_recording:
+                return CALL_TYPE_MISSED, CALL_OUTCOME_VOICEMAIL
+            return CALL_TYPE_MISSED, CALL_OUTCOME_UNREACHED
         return CALL_TYPE_INCOMING, CALL_OUTCOME_ANSWERED
 
     if call.type in (MISSED_CALL_TYPE, REJECTED_CALL_TYPE):
@@ -139,26 +186,35 @@ def _classify_call(call: Call) -> tuple[str | None, str | None]:
     return None, None
 
 
-def _log_raw_call_for_diagnostics(call: Call, bucket: str | None, outcome: str | None) -> None:
+def _log_raw_call_for_diagnostics(
+    call: Call,
+    bucket: str | None,
+    outcome: str | None,
+    matched_message: TamMessage | None,
+) -> None:
     """Temporary DEBUG log of one call's raw fields alongside our classification.
 
     Added in v1.0.3 specifically to collect real-world examples for the
     still-unconfirmed distinction mentioned in ``_classify_call`` above
     (hung up before the answering machine vs. reached it without leaving a
     message). Enable debug logging for ``custom_components.fritzbox_anrufe``
-    (Einstellungen -> Geräte & Dienste -> FRITZ!Box Anrufe -> Info-Symbol
-    aktivieren, oder in configuration.yaml unter ``logger: logs:``) and
-    reproduce a specific scenario to see the exact raw values here.
+    (Einstellungen -> Geräte & Dienste -> FRITZ!Box Anrufe -> Drei-Punkte-
+    Menü -> "Debug-Protokollierung aktivieren", oder in configuration.yaml
+    unter ``logger: logs:``) and reproduce a specific scenario to see the
+    exact raw values here.
     """
     _LOGGER.debug(
-        "Anrufliste: Id=%s Type=%s Path=%r Duration=%r Date=%s -> bucket=%s outcome=%s",
+        "Anrufliste: Id=%s Type=%s Device=%r Path=%r Duration=%r Date=%s"
+        " -> bucket=%s outcome=%s matched_tam_message=%s",
         call.Id,
         call.Type,
+        call.Device,
         call.Path,
         call.Duration,
         call.Date,
         bucket,
         outcome,
+        matched_message.Index if matched_message is not None else None,
     )
 
 
@@ -181,8 +237,15 @@ class FritzCallLogCoordinator(DataUpdateCoordinator[CallLogData]):
         hass: HomeAssistant,
         config_entry: ConfigEntry,
         fritz_call: FritzCall,
+        tam_coordinator: FritzTamCoordinator | None = None,
     ) -> None:
-        """Initialize the call log coordinator."""
+        """Initialize the call log coordinator.
+
+        ``tam_coordinator``, if given, supplies the answering-machine
+        message list used by ``_find_matching_tam_message`` to classify
+        calls (see ``_fetch_calls``/``_classify_call``) - pass ``None``
+        only in tests; ``__init__.py`` always provides the real one.
+        """
         super().__init__(
             hass,
             _LOGGER,
@@ -191,6 +254,7 @@ class FritzCallLogCoordinator(DataUpdateCoordinator[CallLogData]):
         )
         self.config_entry = config_entry
         self._fritz_call = fritz_call
+        self._tam_coordinator = tam_coordinator
 
     def _limit_for(self, call_type: str) -> tuple[str, int]:
         """Return (limit_type, value) for one call-list sensor's own option."""
@@ -215,27 +279,41 @@ class FritzCallLogCoordinator(DataUpdateCoordinator[CallLogData]):
 
         A single ``get_calls(calltype=ALL_CALL_TYPES, update=True, ...)``
         downloads the raw, combined call list from the FRITZ!Box exactly
-        once per polling cycle; every call is then classified and sorted
-        into one of our three buckets client-side via ``_classify_call``
+        once per polling cycle; every call is then matched against the
+        answering-machine coordinator's currently-known messages (see
+        ``_find_matching_tam_message`` - uses whatever ``self._tam_coordinator.data``
+        already holds, does NOT trigger its own TAM refresh, to keep this a
+        single-round-trip operation per polling cycle) and classified via
+        ``_classify_call`` into one of our three buckets client-side
         (unmapped raw types - the two transient "call in progress" ones -
-        are skipped). The computed outcome is stashed as a dynamic
-        ``outcome`` attribute directly on the ``Call`` instance so
-        ``sensor.py`` can read it without recomputing the classification.
+        are skipped). The computed outcome, and the matched message itself
+        if any, are stashed as dynamic ``outcome``/``tam_message`` attributes
+        directly on the ``Call`` instance so ``sensor.py`` can read them
+        without recomputing the classification - ``tam_message`` in
+        particular lets it point ``media_url`` at the already real-hardware-
+        confirmed Anrufbeantworter media proxy instead of the newer,
+        unconfirmed call-list one whenever a confident match exists (see
+        ``sensor.py:_call_to_dict``).
         """
         raw_calls = self._fritz_call.get_calls(
             calltype=ALL_CALL_TYPES,
             update=True,
             days=SHARED_CALL_LOG_FETCH_DAYS,
         )
+        tam_messages: list[TamMessage] = (
+            (self._tam_coordinator.data if self._tam_coordinator is not None else None) or []
+        )
 
         unsorted_by_type: dict[str, list[Call]] = {call_type: [] for call_type in CALL_TYPES}
         for call in raw_calls:
-            bucket, outcome = _classify_call(call)
+            matched_message = _find_matching_tam_message(call, tam_messages)
+            bucket, outcome = _classify_call(call, matched_message)
             if _LOGGER.isEnabledFor(logging.DEBUG):
-                _log_raw_call_for_diagnostics(call, bucket, outcome)
+                _log_raw_call_for_diagnostics(call, bucket, outcome, matched_message)
             if bucket is None:
                 continue
             call.outcome = outcome
+            call.tam_message = matched_message
             unsorted_by_type[bucket].append(call)
 
         calls_by_type = {

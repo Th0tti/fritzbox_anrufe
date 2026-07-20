@@ -14,9 +14,10 @@ from fritzconnection.lib.fritzcall import Call
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import CONF_HOST, CONF_PORT, EVENT_HOMEASSISTANT_STOP
-from homeassistant.core import Event, HomeAssistant
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import FritzBoxCallMonitorConfigEntry, FritzBoxRuntimeData
@@ -33,6 +34,7 @@ from .const import (
     CONF_PREFIXES,
     DOMAIN,
     MANUFACTURER,
+    POST_CALL_REFRESH_DELAY_SECONDS,
     SERIAL_NUMBER,
     TAM_MEDIA_URL_BASE,
     FritzState,
@@ -94,6 +96,8 @@ async def async_setup_entry(
         host=host,
         port=port,
         device_info=device_info,
+        call_log_coordinator=call_log_coordinator,
+        tam_coordinator=tam_coordinator,
     )
 
     call_list_sensors = [
@@ -147,6 +151,8 @@ class FritzBoxCallSensor(SensorEntity):
         host: str,
         port: int,
         device_info: DeviceInfo,
+        call_log_coordinator: FritzCallLogCoordinator,
+        tam_coordinator: FritzTamCoordinator | None,
     ) -> None:
         """Initialize the sensor."""
         self._fritzbox_phonebook = fritzbox_phonebook
@@ -155,6 +161,11 @@ class FritzBoxCallSensor(SensorEntity):
         self._port = port
         self._monitor: FritzBoxCallMonitor | None = None
         self._attributes: dict[str, str | list[str] | bool] = {}
+        # Used by _schedule_post_call_refresh() (since v1.0.3, see its
+        # docstring) to trigger an extra call-list/AB refresh shortly after
+        # a call ends, on top of both coordinators' regular 5-minute polling.
+        self._call_log_coordinator = call_log_coordinator
+        self._tam_coordinator = tam_coordinator
 
         self._attr_translation_placeholders = {"phonebook_name": phonebook_name}
         self._attr_unique_id = unique_id
@@ -202,8 +213,48 @@ class FritzBoxCallSensor(SensorEntity):
             _LOGGER.debug("Stopped monitor for: %s", self.entity_id)
 
     def set_state(self, state: CallState) -> None:
-        """Set the state."""
+        """Set the state; also triggers a post-call refresh (see below)."""
+        previous_state = self._attr_native_value
         self._attr_native_value = state
+        # Any transition back to idle after a non-idle state means a call
+        # just ended - whether it was actually answered (RINGING/DIALING ->
+        # TALKING -> IDLE) or missed (RINGING -> IDLE with no TALKING in
+        # between). Either way, the call-list/AB coordinators' data is now
+        # stale until their next regular 5-minute poll - refresh them early
+        # instead of waiting.
+        if state == CallState.IDLE and previous_state != CallState.IDLE:
+            self._schedule_post_call_refresh()
+
+    def _schedule_post_call_refresh(self) -> None:
+        """Schedule an extra coordinator refresh shortly after a call ends.
+
+        This runs on FritzBoxCallMonitor's background thread (see
+        _process_events/_parse below), NOT the Home Assistant event loop -
+        same constraint as schedule_update_ha_state(), which uses the same
+        call_soon_threadsafe hand-off. A short delay
+        (POST_CALL_REFRESH_DELAY_SECONDS, see const.py) gives the FRITZ!Box
+        a moment to finalize the new call-list entry and, if applicable,
+        process a freshly recorded answering-machine message before this
+        integration asks for it - polling immediately on disconnect risked
+        a race where the entry (or the TAM message used to match it, see
+        call_log.py:_find_matching_tam_message) wasn't there yet.
+        """
+        if self.hass is None:
+            return
+        self.hass.loop.call_soon_threadsafe(self._async_schedule_post_call_refresh)
+
+    @callback
+    def _async_schedule_post_call_refresh(self) -> None:
+        """Event-loop-side half of _schedule_post_call_refresh()."""
+        async_call_later(
+            self.hass, POST_CALL_REFRESH_DELAY_SECONDS, self._async_refresh_after_call
+        )
+
+    async def _async_refresh_after_call(self, _now: Any = None) -> None:
+        """Refresh the call-list coordinator, and the AB one if present."""
+        await self._call_log_coordinator.async_request_refresh()
+        if self._tam_coordinator is not None:
+            await self._tam_coordinator.async_request_refresh()
 
     def set_attributes(self, attributes: Mapping[str, str | bool]) -> None:
         """Set the state attributes."""
@@ -300,15 +351,23 @@ class FritzBoxCallListSensor(CoordinatorEntity[FritzCallLogCoordinator], SensorE
             contact = self._fritzbox_phonebook.get_contact(external_number)
 
         duration = call.duration
-        # "outcome" is set by FritzCallLogCoordinator._fetch_calls() (see
-        # call_log.py:_classify_call) as a dynamic attribute directly on the
-        # Call instance - used by the dashboard card's optional
-        # "Weiterverarbeitung" row (since v1.0.3) to pick an icon/action.
-        # media_url is only present when a recording exists (call.Path set,
-        # i.e. outcome == CALL_OUTCOME_VOICEMAIL) - see http.py.
+        # "outcome" and "tam_message" are set by
+        # FritzCallLogCoordinator._fetch_calls() (see
+        # call_log.py:_classify_call/_find_matching_tam_message) as dynamic
+        # attributes directly on the Call instance. "outcome" is used by the
+        # dashboard card's optional "Weiterverarbeitung" row (since v1.0.3)
+        # to pick an icon/action. For media_url, a confidently matched
+        # tam_message is preferred - it points at the TAM sensor's own,
+        # already real-hardware-confirmed media proxy (see http.py:
+        # FritzBoxTamMediaView) instead of the newer, unconfirmed call-list
+        # one; call.Path alone is only used as a fallback when no match was
+        # found (e.g. the TAM coordinator hasn't polled yet).
         outcome = getattr(call, "outcome", None)
+        tam_message = getattr(call, "tam_message", None)
         media_url = None
-        if call.Path:
+        if tam_message is not None and tam_message.Path:
+            media_url = f"{TAM_MEDIA_URL_BASE}/{self._config_entry_id}/{tam_message.Index}"
+        elif call.Path:
             media_url = f"{CALL_MEDIA_URL_BASE}/{self._config_entry_id}/{self._call_type}/{call.id}"
         return {
             "type": self._call_type,

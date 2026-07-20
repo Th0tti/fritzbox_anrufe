@@ -293,24 +293,30 @@ async def async_setup_entry(
         _LOGGER.error("Unable to connect to FRITZ!Box call monitor: %s", ex)
         raise ConfigEntryNotReady from ex
 
+    # Anrufbeantworter (EXPERIMENTELL, siehe tam.py/voicemail.py). Same
+    # "never block setup, just show as unavailable" treatment as the call
+    # list below - a missing permission or an unconfirmed TR-064 API shape
+    # on the user's FRITZ!Box must not break the rest of the integration.
+    # Initialized BEFORE the call-log coordinator (and refreshed first) so
+    # its very first fetch already has TAM messages available for the
+    # date/time-match used to classify calls - see
+    # call_log.py:_find_matching_tam_message.
+    fritz_tam = FritzTam(fc=fritzbox_phonebook.fph.fc)
+    tam_coordinator = FritzTamCoordinator(hass, config_entry, fritz_tam)
+    await tam_coordinator.async_refresh()
+
     # Reuse the already-authenticated TR-064 connection opened for the
     # phonebook lookup instead of opening a second one just for the call list.
     fritz_call = FritzCall(fc=fritzbox_phonebook.fph.fc)
-    call_log_coordinator = FritzCallLogCoordinator(hass, config_entry, fritz_call)
+    call_log_coordinator = FritzCallLogCoordinator(
+        hass, config_entry, fritz_call, tam_coordinator=tam_coordinator
+    )
     # Deliberately not using async_config_entry_first_refresh() here: a
     # missing "Anrufliste" permission or disabled TR-064 on the FRITZ!Box
     # account must not prevent the whole integration (incl. the working
     # call-monitor sensor) from loading. The three history sensors simply
     # stay "unavailable" until the coordinator can fetch data successfully.
     await call_log_coordinator.async_refresh()
-
-    # Anrufbeantworter (EXPERIMENTELL, siehe tam.py/voicemail.py). Same
-    # "never block setup, just show as unavailable" treatment as the call
-    # list above - a missing permission or an unconfirmed TR-064 API shape
-    # on the user's FRITZ!Box must not break the rest of the integration.
-    fritz_tam = FritzTam(fc=fritzbox_phonebook.fph.fc)
-    tam_coordinator = FritzTamCoordinator(hass, config_entry, fritz_tam)
-    await tam_coordinator.async_refresh()
 
     unique_id = f"{config_entry.data[SERIAL_NUMBER]}-{config_entry.data[CONF_PHONEBOOK]}"
     _async_reserve_entity_ids(hass, config_entry, unique_id)
