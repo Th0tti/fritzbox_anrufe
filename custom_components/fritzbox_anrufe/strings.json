@@ -22,9 +22,9 @@
         "title": "Call history depth",
         "description": "Choose, for each of the three call-list sensors, whether it should be limited by a number of calls or by a number of days. You can change this again later under Settings -> Devices & Services -> FRITZ!Box Anrufe -> Configure.",
         "data": {
-          "call_log_limit_type_eingehend": "Incoming calls: mode",
-          "call_log_count_eingehend": "Incoming calls: number of calls (if 'Number of calls' selected)",
-          "call_log_days_eingehend": "Incoming calls: number of days (if 'Number of days' selected)",
+          "call_log_limit_type_eingehend": "Answered calls: mode",
+          "call_log_count_eingehend": "Answered calls: number of calls (if 'Number of calls' selected)",
+          "call_log_days_eingehend": "Answered calls: number of days (if 'Number of days' selected)",
           "call_log_limit_type_ausgehend": "Outgoing calls: mode",
           "call_log_count_ausgehend": "Outgoing calls: number of calls (if 'Number of calls' selected)",
           "call_log_days_ausgehend": "Outgoing calls: number of days (if 'Number of days' selected)",
@@ -63,16 +63,36 @@
           "talking": "Talking"
         },
         "state_attributes": {
-          "accepted": { "name": "Accepted" },
-          "closed": { "name": "Closed" },
-          "device": { "name": "Device" },
-          "duration": { "name": "Duration" },
-          "from": { "name": "Caller number" },
-          "from_name": { "name": "Caller name" },
-          "initiated": { "name": "Initiated" },
-          "prefixes": { "name": "Prefixes" },
-          "to": { "name": "Number called" },
-          "to_name": { "name": "Called name" },
+          "accepted": {
+            "name": "Accepted"
+          },
+          "closed": {
+            "name": "Closed"
+          },
+          "device": {
+            "name": "Device"
+          },
+          "duration": {
+            "name": "Duration"
+          },
+          "from": {
+            "name": "Caller number"
+          },
+          "from_name": {
+            "name": "Caller name"
+          },
+          "initiated": {
+            "name": "Initiated"
+          },
+          "prefixes": {
+            "name": "Prefixes"
+          },
+          "to": {
+            "name": "Number called"
+          },
+          "to_name": {
+            "name": "Called name"
+          },
           "type": {
             "name": "Type",
             "state": {
@@ -80,33 +100,47 @@
               "outgoing": "Outgoing"
             }
           },
-          "vip": { "name": "Important" },
-          "with": { "name": "With number" },
-          "with_name": { "name": "With name" }
+          "vip": {
+            "name": "Important"
+          },
+          "with": {
+            "name": "With number"
+          },
+          "with_name": {
+            "name": "With name"
+          }
         }
       },
       "fritzbox_anrufe_eingehend": {
-        "name": "Incoming calls {phonebook_name}",
+        "name": "Answered calls {phonebook_name}",
         "state_attributes": {
-          "calls": { "name": "Calls" }
+          "calls": {
+            "name": "Calls"
+          }
         }
       },
       "fritzbox_anrufe_ausgehend": {
         "name": "Outgoing calls {phonebook_name}",
         "state_attributes": {
-          "calls": { "name": "Calls" }
+          "calls": {
+            "name": "Calls"
+          }
         }
       },
       "fritzbox_anrufe_verpasst": {
         "name": "Missed calls {phonebook_name}",
         "state_attributes": {
-          "calls": { "name": "Calls" }
+          "calls": {
+            "name": "Calls"
+          }
         }
       },
       "fritzbox_anrufe_anrufbeantworter": {
         "name": "Answering machine {phonebook_name}",
         "state_attributes": {
-          "messages": { "name": "Messages" }
+          "messages": {
+            "name": "Messages"
+          }
         }
       }
     }
@@ -128,9 +162,9 @@
         "title": "Configure FRITZ!Box Anrufe",
         "data": {
           "prefixes": "Prefixes (comma-separated list)",
-          "call_log_limit_type_eingehend": "Incoming calls: mode",
-          "call_log_count_eingehend": "Incoming calls: number of calls (if 'Number of calls' selected)",
-          "call_log_days_eingehend": "Incoming calls: number of days (if 'Number of days' selected)",
+          "call_log_limit_type_eingehend": "Answered calls: mode",
+          "call_log_count_eingehend": "Answered calls: number of calls (if 'Number of calls' selected)",
+          "call_log_days_eingehend": "Answered calls: number of days (if 'Number of days' selected)",
           "call_log_limit_type_ausgehend": "Outgoing calls: mode",
           "call_log_count_ausgehend": "Outgoing calls: number of calls (if 'Number of calls' selected)",
           "call_log_days_ausgehend": "Outgoing calls: number of days (if 'Number of days' selected)",
@@ -139,7 +173,7 @@
           "call_log_days_verpasst": "Missed calls: number of days (if 'Number of days' selected)"
         },
         "data_description": {
-          "call_log_limit_type_eingehend": "Whether the incoming-calls sensor is limited by count or by time period.",
+          "call_log_limit_type_eingehend": "Whether the fritzbox_anrufe_eingehend sensor (Answered calls) is limited by count or by time period.",
           "call_log_limit_type_ausgehend": "Whether the outgoing-calls sensor is limited by count or by time period.",
           "call_log_limit_type_verpasst": "Whether the missed-calls sensor is limited by count or by time period."
         }

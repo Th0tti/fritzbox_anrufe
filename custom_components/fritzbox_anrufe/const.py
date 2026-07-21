@@ -97,12 +97,21 @@ CALL_OUTCOME_ANSWERED = "beantwortet"
 # Datum/Uhrzeit- (und, falls vorhanden, Rufnummer-)Abgleichs mit den
 # tatsächlichen Anrufbeantworter-Nachrichten (siehe
 # call_log.py:_find_matching_tam_message) - ein deutlich verlässlicheres
-# Signal als das call-list-eigene Path-Feld allein. Die FRITZ!Box-Anrufliste
-# unterscheidet dennoch nicht zuverlässig zwischen "vor dem Anrufbeantworter
-# aufgelegt" und "Anrufbeantworter erreicht, aber keine Nachricht
-# hinterlassen" - fehlt eine passende Nachricht, fallen beide Fälle
-# weiterhin unter CALL_OUTCOME_UNREACHED.
+# Signal als das call-list-eigene Path-Feld allein.
 CALL_OUTCOME_VOICEMAIL = "anrufbeantworter"
+# Ging zum Anrufbeantworter (Device == DEVICE_ANSWERING_MACHINE), aber es
+# wurde keine Nachricht gefunden - z. B. weil der Anrufer aufgelegt hat,
+# bevor die Ansage zu Ende war. Getrennt von CALL_OUTCOME_UNREACHED (siehe
+# unten), seit Thorsten darauf hinwies, dass der bisherige gemeinsame Text
+# "Nicht erreicht" für diesen Fall irreführend war - der Anruf KAM ja beim
+# Anrufbeantworter an, nur eben ohne Sprachnachricht.
+CALL_OUTCOME_NO_VOICEMAIL = "keine_nachricht"
+# Ging NICHT zum Anrufbeantworter (z. B. von der FRITZ!Box abgewiesen, oder
+# schlicht nie angenommen und kein Anrufbeantworter aktiv/erreichbar) - hier
+# bleibt "nicht erreicht" zutreffend. Die FRITZ!Box-Anrufliste unterscheidet
+# innerhalb von CALL_OUTCOME_NO_VOICEMAIL weiterhin nicht zuverlässig
+# zwischen "vor dem Anrufbeantworter aufgelegt" und "Anrufbeantworter
+# erreicht, aber keine Nachricht hinterlassen" - siehe README.
 CALL_OUTCOME_UNREACHED = "nicht_erreicht"
 # Ausgehend: nur Verbindungsdauer > 0 ist zuverlässig auswertbar - eine
 # Unterscheidung zwischen "besetzt" und "niemand nimmt ab" liefert die

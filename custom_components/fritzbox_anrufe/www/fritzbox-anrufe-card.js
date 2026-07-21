@@ -5,13 +5,21 @@
  *
  * Shows a filterable list of incoming/outgoing/missed FRITZ!Box calls plus
  * Anrufbeantworter (answering machine) messages, switched via a 5-icon
- * header bar (Alle / Eingehend / Ausgehend / Verpasst / Anrufbeantworter -
+ * header bar (Alle / Angenommen / Ausgehend / Verpasst / Anrufbeantworter -
  * Anrufbeantworter is a tab like the others, not a separate section below
  * the call list), with a live-call banner above the icons whenever a call
  * is currently ringing/dialing/ongoing. Responsive: the layout stays
  * legible on both a phone-width and a desktop-width dashboard.
  *
- * Every category - Alle/Gesamt, Eingehend, Ausgehend, Verpasst and
+ * The "eingehend"/incoming filter/config key (internal identifier, unique_id
+ * and entity_id all stay "eingehend" for backwards compatibility - see
+ * const.py:CALL_TYPE_INCOMING) is labeled "Angenommen" in the UI since
+ * v1.0.3: after that version's reclassification (calls routed to the
+ * answering machine now count as "verpasst"), this tab only ever contains
+ * calls a person actually answered, so "Eingehend" read as misleading -
+ * per Thorsten.
+ *
+ * Every category - Alle/Gesamt, Angenommen, Ausgehend, Verpasst and
  * Anrufbeantworter - can be individually shown or hidden via the graphical
  * config editor (or the matching show_* YAML key); the Anrufbeantworter tab
  * additionally only appears once entity_voicemail is configured. There is
@@ -91,7 +99,9 @@ const FILTER_ORDER = ["alle", "eingehend", "ausgehend", "verpasst", FILTER_VOICE
 
 const FILTER_META = {
   alle: { icon: "mdi:phone-log", label: "Alle" },
-  eingehend: { icon: "mdi:phone-incoming", label: "Eingehend" },
+  // Label "Angenommen" since v1.0.3 (was "Eingehend") - see the module
+  // docstring above. The filter/config key itself stays "eingehend".
+  eingehend: { icon: "mdi:phone-incoming", label: "Angenommen" },
   ausgehend: { icon: "mdi:phone-outgoing", label: "Ausgehend" },
   verpasst: { icon: "mdi:phone-missed", label: "Verpasst" },
   anrufbeantworter: { icon: "mdi:voicemail", label: "Anrufbeantworter" },
@@ -144,6 +154,17 @@ const PROCESSING_META = {
     color: "var(--error-color, #db4437)",
     tab: "verpasst",
   },
+  // Ging zum Anrufbeantworter, aber es wurde keine Nachricht hinterlassen -
+  // seit v1.0.3 getrennt von "nicht_erreicht" (siehe const.py:
+  // CALL_OUTCOME_NO_VOICEMAIL), da der Anruf den Anrufbeantworter ja
+  // tatsächlich erreicht hat, nur eben ohne Sprachnachricht - per Thorsten
+  // war "Nicht erreicht" dafür irreführend.
+  keine_nachricht: {
+    icon: "mdi:phone-missed",
+    label: "Keine Anrufbeantworter-Nachricht vorhanden",
+    color: "var(--error-color, #db4437)",
+    tab: "verpasst",
+  },
   anrufbeantworter: {
     icon: "mdi:play-circle-outline",
     label: "Anrufbeantworter-Nachricht abspielen",
@@ -156,7 +177,7 @@ const PROCESSING_META = {
 const CONFIG_DEFAULTS = {
   title: "FRITZ!Box Anrufe",
   max_rows: 10,
-  // Kategorien/Tabs (Alle/Gesamt, Eingehend, Ausgehend, Verpasst,
+  // Kategorien/Tabs (Alle/Gesamt, Angenommen, Ausgehend, Verpasst,
   // Anrufbeantworter) einzeln ein-/ausblendbar. show_anrufbeantworter
   // wirkt zusätzlich zur Voraussetzung, dass entity_voicemail gesetzt ist -
   // siehe _visibleFilterTypes().
@@ -905,13 +926,13 @@ class FritzboxAnrufeCard extends HTMLElement {
 const EDITOR_LABELS = {
   title: "Titel",
   entity_live: "Sensor: Live-Anrufmonitor (optional)",
-  entity_eingehend: "Sensor: Eingehende Anrufe",
+  entity_eingehend: "Sensor: Angenommene Anrufe",
   entity_ausgehend: "Sensor: Ausgehende Anrufe",
   entity_verpasst: "Sensor: Verpasste Anrufe",
   entity_voicemail: "Sensor: Anrufbeantworter (optional)",
   max_rows: "Max. Zeilen",
   show_alle: "Kategorie 'Gesamt' (Alle) anzeigen",
-  show_eingehend: "Kategorie 'Eingehend' anzeigen",
+  show_eingehend: "Kategorie 'Angenommen' anzeigen",
   show_ausgehend: "Kategorie 'Ausgehend' anzeigen",
   show_verpasst: "Kategorie 'Verpasst' anzeigen",
   show_anrufbeantworter: "Kategorie 'Anrufbeantworter' anzeigen",
@@ -923,7 +944,7 @@ const EDITOR_LABELS = {
   show_date: "Datum/Uhrzeit anzeigen",
   show_vip: "VIP-Markierung anzeigen",
   show_processing_alle: "Weiterverarbeitung auf 'Gesamt' anzeigen",
-  show_processing_eingehend: "Weiterverarbeitung bei 'Eingehend' anzeigen",
+  show_processing_eingehend: "Weiterverarbeitung bei 'Angenommen' anzeigen",
   show_processing_ausgehend: "Weiterverarbeitung bei 'Ausgehend' anzeigen",
   show_processing_verpasst: "Weiterverarbeitung bei 'Verpasst' anzeigen",
 };

@@ -22,9 +22,9 @@
         "title": "Verlaufstiefe der Anruflisten",
         "description": "Lege für jeden der drei Anruflisten-Sensoren fest, ob er nach Anzahl der Anrufe oder nach Anzahl der Tage begrenzt werden soll. Das kann später jederzeit unter Einstellungen -> Geräte & Dienste -> FRITZ!Box Anrufe -> Konfigurieren geändert werden.",
         "data": {
-          "call_log_limit_type_eingehend": "Eingehende Anrufe: Modus",
-          "call_log_count_eingehend": "Eingehende Anrufe: Anzahl (falls 'Anzahl Anrufe' gewählt)",
-          "call_log_days_eingehend": "Eingehende Anrufe: Anzahl Tage (falls 'Anzahl Tage' gewählt)",
+          "call_log_limit_type_eingehend": "Angenommene Anrufe: Modus",
+          "call_log_count_eingehend": "Angenommene Anrufe: Anzahl (falls 'Anzahl Anrufe' gewählt)",
+          "call_log_days_eingehend": "Angenommene Anrufe: Anzahl Tage (falls 'Anzahl Tage' gewählt)",
           "call_log_limit_type_ausgehend": "Ausgehende Anrufe: Modus",
           "call_log_count_ausgehend": "Ausgehende Anrufe: Anzahl (falls 'Anzahl Anrufe' gewählt)",
           "call_log_days_ausgehend": "Ausgehende Anrufe: Anzahl Tage (falls 'Anzahl Tage' gewählt)",
@@ -86,7 +86,7 @@
         }
       },
       "fritzbox_anrufe_eingehend": {
-        "name": "Eingehende Anrufe {phonebook_name}",
+        "name": "Angenommene Anrufe {phonebook_name}",
         "state_attributes": {
           "calls": { "name": "Anrufe" }
         }
@@ -128,9 +128,9 @@
         "title": "FRITZ!Box Anrufe konfigurieren",
         "data": {
           "prefixes": "Präfixe (kommagetrennte Liste)",
-          "call_log_limit_type_eingehend": "Eingehende Anrufe: Modus",
-          "call_log_count_eingehend": "Eingehende Anrufe: Anzahl (falls 'Anzahl Anrufe' gewählt)",
-          "call_log_days_eingehend": "Eingehende Anrufe: Anzahl Tage (falls 'Anzahl Tage' gewählt)",
+          "call_log_limit_type_eingehend": "Angenommene Anrufe: Modus",
+          "call_log_count_eingehend": "Angenommene Anrufe: Anzahl (falls 'Anzahl Anrufe' gewählt)",
+          "call_log_days_eingehend": "Angenommene Anrufe: Anzahl Tage (falls 'Anzahl Tage' gewählt)",
           "call_log_limit_type_ausgehend": "Ausgehende Anrufe: Modus",
           "call_log_count_ausgehend": "Ausgehende Anrufe: Anzahl (falls 'Anzahl Anrufe' gewählt)",
           "call_log_days_ausgehend": "Ausgehende Anrufe: Anzahl Tage (falls 'Anzahl Tage' gewählt)",
@@ -139,7 +139,7 @@
           "call_log_days_verpasst": "Verpasste Anrufe: Anzahl Tage (falls 'Anzahl Tage' gewählt)"
         },
         "data_description": {
-          "call_log_limit_type_eingehend": "Bestimmt, ob der Sensor fritzbox_anrufe_eingehend nach Anzahl oder nach Zeitraum begrenzt wird.",
+          "call_log_limit_type_eingehend": "Bestimmt, ob der Sensor fritzbox_anrufe_eingehend (Angenommene Anrufe) nach Anzahl oder nach Zeitraum begrenzt wird.",
           "call_log_limit_type_ausgehend": "Bestimmt, ob der Sensor fritzbox_anrufe_ausgehend nach Anzahl oder nach Zeitraum begrenzt wird.",
           "call_log_limit_type_verpasst": "Bestimmt, ob der Sensor fritzbox_anrufe_verpasst nach Anzahl oder nach Zeitraum begrenzt wird."
         }

@@ -34,7 +34,7 @@ mitgelieferte Dashboard-Karte.
   Icon-Filterleiste, Live-Banner und responsivem Layout - keine manuelle
   Lovelace-Ressource nötig.
 - Grafischer Karten-Editor (Home-Assistant-Standardformular): Sensoren,
-  Zeilenanzahl, einzeln zuschaltbare Kategorien (Alle/Gesamt, Eingehend,
+  Zeilenanzahl, einzeln zuschaltbare Kategorien (Alle/Gesamt, Angenommen,
   Ausgehend, Verpasst, Anrufbeantworter) und einzeln zuschaltbare Spalten
   (Name, Nummer, eigene Rufnummer, Gerät, Dauer, Datum, VIP) lassen sich
   ohne YAML einstellen.
@@ -144,7 +144,7 @@ Pro konfiguriertem Telefonbuch/FRITZ!Box-Konto werden fünf Sensoren angelegt:
 | Sensor (Übersetzungsschlüssel) | Beschreibung | Zustand | Attribut |
 | --- | --- | --- | --- |
 | `fritzbox_anrufe_live` | Live-Anrufmonitor | `idle` / `ringing` / `dialing` / `talking` | - (siehe Live-Attribute unten) |
-| `fritzbox_anrufe_eingehend` | Eingehende Anrufe | Anzahl gespeicherter Anrufe | `calls`: Liste eingehender Anrufe |
+| `fritzbox_anrufe_eingehend` | Angenommene Anrufe | Anzahl gespeicherter Anrufe | `calls`: Liste angenommener Anrufe |
 | `fritzbox_anrufe_ausgehend` | Ausgehende Anrufe | Anzahl gespeicherter Anrufe | `calls`: Liste ausgehender Anrufe |
 | `fritzbox_anrufe_verpasst` | Verpasste Anrufe | Anzahl gespeicherter Anrufe | `calls`: Liste verpasster Anrufe |
 | `fritzbox_anrufe_anrufbeantworter` **(experimentell)** | Anrufbeantworter-Nachrichten | Anzahl gespeicherter Nachrichten | `messages`: Liste der Sprachnachrichten |
@@ -172,13 +172,14 @@ sowie seit Version 1.0.3 zusätzlich `outcome` und `media_url`:
   `type`): `beantwortet` (eingehend, von einer Person angenommen),
   `anrufbeantworter` (an den Anrufbeantworter weitergeleitet, Nachricht
   aufgezeichnet - zählt seit 1.0.3 zu `verpasst`, siehe unten),
-  `nicht_erreicht` (verpasst, ohne aufgezeichnete Nachricht - fasst sowohl
-  "vor dem Anrufbeantworter aufgelegt" als auch "Anrufbeantworter erreicht,
-  aber keine Nachricht hinterlassen" zusammen, siehe
-  [Bekannte Einschränkungen](#bekannte-einschränkungen)), `verbunden`
-  (ausgehend, Gespräch zustande gekommen) sowie `nicht_verbunden` (ausgehend,
-  keine Verbindung - fasst "besetzt" und "niemand nimmt ab" zusammen,
-  ebenfalls siehe [Bekannte Einschränkungen](#bekannte-einschränkungen)).
+  `keine_nachricht` (an den Anrufbeantworter weitergeleitet, aber keine
+  Nachricht aufgezeichnet - neu seit 1.0.3, vorher Teil von `nicht_erreicht`),
+  `nicht_erreicht` (verpasst, ohne dass die Integration eine Weiterleitung an
+  den Anrufbeantworter feststellen konnte - z. B. aufgelegt, bevor der
+  Anrufbeantworter ansprang, oder kein Anrufbeantworter aktiv/konfiguriert),
+  `verbunden` (ausgehend, Gespräch zustande gekommen) sowie `nicht_verbunden`
+  (ausgehend, keine Verbindung - fasst "besetzt" und "niemand nimmt ab"
+  zusammen, siehe [Bekannte Einschränkungen](#bekannte-einschränkungen)).
   Wird von der Dashboard-Karte für die optionale
   "Weiterverarbeitung"-Zeile ausgewertet (siehe
   [Dashboard-Karte](#dashboard-karte)).
@@ -235,6 +236,10 @@ im Browser abgespielt werden kann (siehe [Dashboard-Karte](#dashboard-karte)).
 Die Sensoren heißen intern `fritzbox_anrufe_live`/`_eingehend`/`_ausgehend`/
 `_verpasst`/`_anrufbeantworter` (Übersetzungsschlüssel, steuert den je nach
 Home-Assistant-Spracheinstellung übersetzten Anzeigenamen sowie das Icon).
+Seit Version 1.0.3 heißt `_eingehend` in der Oberfläche "Angenommene Anrufe"
+bzw. auf der Dashboard-Karte "Angenommen" - der interne Schlüssel
+`eingehend` sowie alle entity_ids, unique_ids und Konfigurationsschlüssel
+bleiben davon unberührt, um bestehende Installationen nicht zu brechen.
 
 Ab Version 1.0.1 wird zusätzlich die **technische entity_id** bei der
 Ersteinrichtung fest auf genau diese Werte reserviert, z. B.
@@ -278,7 +283,7 @@ unten).
 Funktionen:
 
 - Icon-Leiste oben zum Filtern per Klick - fünf mögliche Symbole: Alle/
-  Gesamt, Eingehend, Ausgehend, Verpasst und (als 5. Symbol)
+  Gesamt, Angenommen, Ausgehend, Verpasst und (als 5. Symbol)
   **Anrufbeantworter**. Welche davon überhaupt erscheinen, ist einzeln
   konfigurierbar (siehe **Kategorien** unten). Ist nach dem Ausblenden nur
   noch eine Kategorie übrig, entfällt die Leiste ganz.
@@ -364,10 +369,11 @@ Tab.
 
 | `outcome` | Icon | Bedeutung | Klick |
 | --- | --- | --- | --- |
-| `beantwortet` | grüner Telefonhörer (`mdi:phone-check`) | Eingehender Anruf wurde angenommen | wechselt zum Tab "Eingehend" |
+| `beantwortet` | grüner Telefonhörer (`mdi:phone-check`) | Eingehender Anruf wurde angenommen | wechselt zum Tab "Angenommen" |
 | `verbunden` | grüner Telefonhörer (`mdi:phone-check`) | Ausgehender Anruf kam zustande | wechselt zum Tab "Ausgehend" |
 | `nicht_verbunden` | durchgestrichener Hörer (`mdi:phone-remove`) | Ausgehender Anruf kam nicht zustande (besetzt oder niemand nimmt ab - nicht unterscheidbar, siehe [Bekannte Einschränkungen](#bekannte-einschränkungen)) | wechselt zum Tab "Ausgehend" |
-| `nicht_erreicht` | roter, durchgestrichener Hörer (`mdi:phone-missed`) | Verpasster Anruf ohne aufgezeichnete Nachricht | wechselt zum Tab "Verpasst" |
+| `keine_nachricht` | roter, durchgestrichener Hörer (`mdi:phone-missed`) | An den Anrufbeantworter weitergeleitet, aber keine Nachricht hinterlassen | wechselt zum Tab "Verpasst" |
+| `nicht_erreicht` | roter, durchgestrichener Hörer (`mdi:phone-missed`) | Verpasster Anruf, ohne dass eine Weiterleitung an den Anrufbeantworter festgestellt werden konnte | wechselt zum Tab "Verpasst" |
 | `anrufbeantworter` | Play-Symbol (`mdi:play-circle-outline`) | Anrufbeantworter hat eine Nachricht aufgezeichnet | spielt die Aufnahme **direkt inline** ab (kein Tab-Wechsel) - technisch identisch zum "Abspielen"-Button im Anrufbeantworter-Tab, siehe unten |
 
 **Zur Wiedergabe-Technik:** Konnte die zugehörige Anrufbeantworter-Nachricht
@@ -504,84 +510,69 @@ die dortigen Maintainer den Fehler beheben.
   dieser Integration auftreten, werden erfasst. Bei zwei praktisch
   gleichzeitigen ausgehenden Anrufen werden diese anhand der vom Callmonitor
   gemeldeten ConnectionID sauber auseinandergehalten.
-- **Verpasste Anrufe - eine noch unbestätigte Detailunterscheidung**: Ob ein
-  an den Anrufbeantworter weitergeleiteter Anruf `outcome: anrufbeantworter`
-  oder `outcome: nicht_erreicht` erhält, wird seit Version 1.0.3 per Datum/
-  Uhrzeit- (und, falls vorhanden, Rufnummer-)Abgleich mit den echten
-  Anrufbeantworter-Nachrichten entschieden - deutlich zuverlässiger als das
-  vorher allein ausgewertete `Path`-Feld der Anrufliste. Innerhalb
-  `outcome: nicht_erreicht` lässt sich damit aber weiterhin nicht
-  unterscheiden, ob der Anrufer schon vor dem Start des Anrufbeantworters
-  aufgelegt hat oder ob der Anrufbeantworter zwar erreicht, aber keine
-  Nachricht hinterlassen wurde - für beide Fälle existiert schlicht keine
-  aufgezeichnete Nachricht zum Abgleichen, eine öffentlich dokumentierte
-  dritte Kennung dafür konnte nicht gefunden werden. Ab Version 1.0.3
-  protokolliert die Integration bei aktiviertem Debug-Logging
-  (`custom_components.fritzbox_anrufe`, siehe
-  [Fehlerbehebung](#fehlerbehebung)) die Rohdaten jedes Anrufs (inkl.
-  `Device` und einer ggf. gefundenen zugehörigen Nachricht) mitsamt
-  berechnetem `outcome` - wer beide Szenarien gezielt nachstellt und die
-  entsprechenden Log-Zeilen als GitHub-Issue meldet, hilft dabei, diese
-  Unterscheidung in einer zukünftigen Version präzise nachzurüsten.
+- **Verpasste Anrufe - Detailunterscheidung**: Ob ein Anruf überhaupt an den
+  Anrufbeantworter weitergeleitet wurde, erkennt die Integration seit
+  Version 1.0.3 direkt am von der FRITZ!Box gemeldeten "Gerät"-Wert
+  (`Device: "Anrufbeantworter"`) - an echter Hardware bestätigt und
+  zuverlässiger als frühere Heuristiken. Ob dabei tatsächlich eine Nachricht
+  aufgezeichnet wurde, wird zusätzlich per Datum/Uhrzeit- (und, falls
+  vorhanden, Rufnummer-)Abgleich mit den echten Anrufbeantworter-Nachrichten
+  bestätigt. Damit ist jetzt klar unterscheidbar, ob ein verpasster Anruf den
+  Anrufbeantworter nie erreicht hat (`outcome: nicht_erreicht` - z. B.
+  aufgelegt, bevor er ansprang, abgewiesen, oder kein Anrufbeantworter
+  aktiv), ob er ihn erreicht hat, aber keine Nachricht hinterlassen wurde
+  (`outcome: keine_nachricht`), oder ob eine Nachricht aufgezeichnet wurde
+  (`outcome: anrufbeantworter`). Offen bleibt lediglich eine sehr feine
+  Unterscheidung *innerhalb* von `keine_nachricht`, nämlich ob der Anrufer
+  schon während der Ansage oder erst nach dem Signalton stumm aufgelegt hat -
+  dafür existiert schlicht kein von der FRITZ!Box gemeldetes Feld. Bei
+  aktiviertem Debug-Logging (`custom_components.fritzbox_anrufe`, siehe
+  [Fehlerbehebung](#fehlerbehebung)) protokolliert die Integration weiterhin
+  die Rohdaten jedes Anrufs (inkl. `Device` und einer ggf. gefundenen
+  zugehörigen Nachricht) mitsamt berechnetem `outcome`.
 
 ## Versionshistorie
 
-- **1.0.3b2** (Vorabversion, auf 1.0.3b1 aufbauend): Thorsten stellte fest,
-  dass ein erfolgloser ausgehender Anruf (besetzt, niemand nimmt ab, vor
-  Annahme aufgelegt) über TR-064 überhaupt nicht in der FRITZ!Box-Anrufliste
-  erscheint - anders als bislang angenommen auch nicht mit Verbindungsdauer
-  0, sondern gar nicht, bis eine Verbindung tatsächlich zustande kommt.
-  Seine Idee: das lässt sich stattdessen über den Live-Callmonitor erkennen,
-  am Zustandswechsel "Wählen" zurück auf "Idle" ohne zwischenzeitliches
-  "Gespräch läuft". Genau das setzt diese Version um - solche Anrufe werden
-  jetzt direkt vom Callmonitor erfasst und erscheinen mit `outcome:
-  nicht_verbunden` in `fritzbox_anrufe_ausgehend`, einschließlich sauberer
-  Behandlung zweier gleichzeitiger ausgehender Anrufe (per ConnectionID
-  auseinandergehalten). Bewusste Einschränkung: diese Einträge leben nur im
-  Arbeitsspeicher und gehen bei einem Neustart verloren - siehe
-  [Bekannte Einschränkungen](#bekannte-einschränkungen).
-- **1.0.3b1** (Vorabversion, auf 1.0.3b0 aufbauend): Zwei von Thorsten
-  vorgeschlagene Verbesserungen, basierend auf Beobachtungen an seiner
-  eigenen FRITZ!Box: (1) Ob ein eingehender Anruf an den Anrufbeantworter
-  weitergeleitet wurde, wird jetzt zusätzlich am von der FRITZ!Box selbst
-  gemeldeten Gerät (`device: "Anrufbeantworter"`) erkannt statt nur am
-  `Path`-Feld - behebt einen Fall, in dem ein an den Anrufbeantworter
-  weitergeleiteter Anruf ohne aufgezeichnete Nachricht fälschlich als
-  "Eingehend"/"beantwortet" erschien, als hätte eine Person abgenommen. Ob
-  dabei eine Nachricht aufgezeichnet wurde, wird jetzt per Datum/Uhrzeit-
-  (und ggf. Rufnummer-)Abgleich mit den echten Anrufbeantworter-Nachrichten
-  bestätigt statt nur anhand von `Path` vermutet - deutlich zuverlässiger,
-  und `media_url` zeigt bei einem eindeutigen Treffer direkt auf den
-  bereits bestätigt funktionierenden Anrufbeantworter-Wiedergabeweg statt
-  auf den neuen, ungetesteten. (2) Der Live-Callmonitor-Sensor löst jetzt
-  zusätzlich zur regulären 5-Minuten-Aktualisierung eine gezielte
-  Aktualisierung der Verlaufs- und Anrufbeantworter-Sensoren aus, sobald
-  sein Zustand nach einem Anruf (angenommen oder verpasst) wieder auf
-  `idle` wechselt - ein Anruf erscheint dadurch in der Regel binnen
-  Sekunden statt erst nach bis zu 5 Minuten in den Sensoren.
-- **1.0.3b0** (Vorabversion): Eingehende Anrufe, die an den
-  Anrufbeantworter weitergeleitet wurden, zählen jetzt zu "Verpasste
-  Anrufe" statt zu "Eingehende Anrufe" (entspricht der Kategorisierung der
-  FRITZ!Box-Weboberfläche selbst); von der FRITZ!Box selbst abgewiesene
-  Anrufe (`REJECTED_CALL_TYPE`, z. B. per Rufnummernblockierung) erscheinen
-  jetzt korrekt als "Verpasst" statt in keinem Sensor - behebt einen
-  gemeldeten Fall, in dem ein solcher Anruf komplett unsichtbar blieb.
-  Jeder Anruf-Eintrag hat jetzt zusätzlich ein `outcome`-Feld (feinere
-  Klassifizierung: `beantwortet`/`anrufbeantworter`/`nicht_erreicht`/
-  `verbunden`/`nicht_verbunden`, siehe [Sensoren](#sensoren)) sowie bei
-  Anrufbeantworter-Nachrichten ein `media_url`-Feld. Neue, optionale
-  "Weiterverarbeitung"-Zeile auf der Dashboard-Karte (vier neue
-  `show_processing_*`-Schalter, standardmäßig aus) zeigt diesen Ausgang pro
-  Anruf mit Icon und verlinkt zum passenden Tab bzw. spielt bei einer
-  aufgezeichneten Nachricht die Aufnahme direkt inline ab - siehe
+- **1.0.3**: Größere Überarbeitung der Anrufklassifizierung, gemeinsam mit
+  Thorsten anhand von Beobachtungen an seiner eigenen FRITZ!Box entwickelt.
+  Eingehende Anrufe, die an den Anrufbeantworter weitergeleitet wurden
+  (erkannt am von der FRITZ!Box gemeldeten Gerät `"Anrufbeantworter"`),
+  zählen jetzt zu "Verpasste Anrufe" statt zu "Eingehende Anrufe" - diese
+  Kategorie heißt in der UI deshalb jetzt **"Angenommen"** statt
+  "Eingehend" (Sensor-Anzeigename, Karten-Tab, Editor-Beschriftungen; die
+  technische entity_id/der interne Schlüssel bleiben zur Abwärtskompatibilität
+  unverändert `eingehend`), da sie nur noch tatsächlich von einer Person
+  angenommene Anrufe enthält. Von der FRITZ!Box selbst abgewiesene Anrufe
+  erscheinen jetzt korrekt als "Verpasst" statt in keinem Sensor. Jeder
+  Anruf-Eintrag hat jetzt zusätzlich ein `outcome`-Feld (feinere
+  Klassifizierung: `beantwortet`/`anrufbeantworter`/`keine_nachricht`/
+  `nicht_erreicht`/`verbunden`/`nicht_verbunden`, siehe [Sensoren](#sensoren))
+  sowie bei Anrufbeantworter-Nachrichten ein `media_url`-Feld - ob eine
+  Nachricht aufgezeichnet wurde, wird per Datum/Uhrzeit- (und ggf.
+  Rufnummer-)Abgleich mit den echten Anrufbeantworter-Nachrichten bestätigt,
+  nicht nur vermutet. Neue, optionale "Weiterverarbeitung"-Zeile auf der
+  Dashboard-Karte (vier neue `show_processing_*`-Schalter, standardmäßig
+  aus) zeigt den Ausgang jedes Anrufs mit Icon und verlinkt zum passenden
+  Tab bzw. spielt bei einer aufgezeichneten Nachricht die Aufnahme direkt
+  inline ab - siehe
   [Weiterverarbeitung](#weiterverarbeitung-seit-version-103-optional).
-  Zwei bewusste, dokumentierte Einschränkungen (kein "besetzt"-Signal bei
-  ausgehenden Anrufen; keine feinere Unterscheidung innerhalb "nicht
-  erreicht") sowie eine neue, noch nicht separat an echter Hardware
-  bestätigte Direktwiedergabe-Funktion aus der Anrufliste heraus - siehe
-  jeweils [Bekannte Einschränkungen](#bekannte-einschränkungen). Neues
-  temporäres Debug-Logging hilft, Rohdaten für die offene Detailfrage zu
-  sammeln (siehe [Fehlerbehebung](#fehlerbehebung)).
+  Ausgehende Anrufe ohne zustande gekommene Verbindung, die die FRITZ!Box
+  über TR-064 gar nicht erst in ihre Anrufliste einträgt, werden jetzt über
+  den Live-Callmonitor selbst erfasst und ergänzt (siehe
+  [Bekannte Einschränkungen](#bekannte-einschränkungen) für die
+  In-Memory-Einschränkung dabei). Der Live-Sensor löst außerdem eine
+  gezielte Aktualisierung der Verlaufs-/Anrufbeantworter-Sensoren aus,
+  sobald er nach einem Anruf wieder auf `idle` wechselt - ein Anruf
+  erscheint dadurch meist binnen Sekunden statt erst nach bis zu 5 Minuten.
+  Bekannte, dokumentierte Einschränkungen (kein "besetzt"-Signal bei
+  ausgehenden Anrufen; innerhalb von `keine_nachricht` keine feinere
+  Unterscheidung zwischen "vor dem Anrufbeantworter aufgelegt" und
+  "Anrufbeantworter erreicht, aber nichts gesagt"; die neue
+  Direktwiedergabe-Funktion aus der Anrufliste heraus ist nur als Fallback
+  aktiv und selbst nicht separat an Hardware verifiziert) - siehe jeweils
+  [Bekannte Einschränkungen](#bekannte-einschränkungen). Temporäres
+  Debug-Logging hilft, Rohdaten für die offene Detailfrage zu sammeln
+  (siehe [Fehlerbehebung](#fehlerbehebung)).
 - **1.0.2**: Fix für "Dashboard-Karte wird nicht gefunden" bzw.
   "Konfigurationsfehler: Custom-Element ist im Frontend unbekannt" trotz
   fehlerfrei geladener Integration und vorhandener Kartendatei - betraf
@@ -640,7 +631,7 @@ die dortigen Maintainer den Fehler beheben.
   Meist ein unvollständiger Download/Cache-Rest. Ordner
   `custom_components/fritzbox_anrufe` komplett löschen, in HACS erneut
   herunterladen, Home Assistant vollständig neu starten.
-- **Sensoren zeigen nur den Gerätenamen statt "Eingehende Anrufe" etc.**:
+- **Sensoren zeigen nur den Gerätenamen statt "Angenommene Anrufe" etc.**:
   Home Assistant vollständig neu starten (Übersetzungen werden beim Start
   geladen); falls das nicht reicht, die betroffenen Entitäten einmal löschen
   und die Integration neu laden lassen.

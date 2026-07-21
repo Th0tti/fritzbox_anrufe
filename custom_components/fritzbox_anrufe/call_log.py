@@ -81,6 +81,7 @@ from .const import (
     CALL_LOG_LIMIT_DAYS,
     CALL_OUTCOME_ANSWERED,
     CALL_OUTCOME_CONNECTED,
+    CALL_OUTCOME_NO_VOICEMAIL,
     CALL_OUTCOME_NOT_CONNECTED,
     CALL_OUTCOME_UNREACHED,
     CALL_OUTCOME_VOICEMAIL,
@@ -174,13 +175,20 @@ def _classify_call(call: Call, matched_message: TamMessage | None) -> tuple[str 
       real answering-machine message list, a materially stronger signal
       than the call list's own ``Path`` field alone. ``call.Path`` is kept
       as an additional fallback trigger (e.g. if the TAM coordinator
-      hasn't polled yet). The FRITZ!Box call list still does not expose a
-      *further* distinction between "caller hung up before the answering
-      machine picked up" and "reached the answering machine's greeting but
-      left no message" - lacking a matched message, both fall under
-      CALL_OUTCOME_UNREACHED. See the module-level
-      ``_log_raw_call_for_diagnostics`` debug logging below, added to
-      gather real examples of both cases before attempting a finer split.
+      hasn't polled yet). Lacking a matched message, the outcome depends on
+      whether the call ever reached the answering machine at all
+      (``to_answering_machine``, same signal as above): CALL_OUTCOME_NO_VOICEMAIL
+      if it did (per Thorsten: the previous single "Nicht erreicht" label
+      was misleading here - the call *did* reach the answering machine, it
+      just has no recorded message), CALL_OUTCOME_UNREACHED if it never got
+      that far (blocked/rejected, or simply unanswered with no answering
+      machine involved). The FRITZ!Box call list still does not expose a
+      *further* distinction within CALL_OUTCOME_NO_VOICEMAIL between
+      "caller hung up before the answering machine picked up" and "reached
+      the answering machine's greeting but left no message". See the
+      module-level ``_log_raw_call_for_diagnostics`` debug logging below,
+      added to gather real examples of both cases before attempting a
+      finer split.
     - For OUT_CALL_TYPE (3), only connection duration is evaluated: the
       FRITZ!Box call list does not expose a dedicated "busy" signal
       distinguishable from a plain unanswered outgoing call - both show as
@@ -189,16 +197,14 @@ def _classify_call(call: Call, matched_message: TamMessage | None) -> tuple[str 
     to_answering_machine = (call.Device or "").strip() == DEVICE_ANSWERING_MACHINE
     has_recording = matched_message is not None or bool(call.Path)
 
-    if call.type == RECEIVED_CALL_TYPE:
-        if to_answering_machine or has_recording:
-            if has_recording:
-                return CALL_TYPE_MISSED, CALL_OUTCOME_VOICEMAIL
-            return CALL_TYPE_MISSED, CALL_OUTCOME_UNREACHED
+    if call.type == RECEIVED_CALL_TYPE and not to_answering_machine and not has_recording:
         return CALL_TYPE_INCOMING, CALL_OUTCOME_ANSWERED
 
-    if call.type in (MISSED_CALL_TYPE, REJECTED_CALL_TYPE):
+    if call.type in (RECEIVED_CALL_TYPE, MISSED_CALL_TYPE, REJECTED_CALL_TYPE):
         if has_recording:
             return CALL_TYPE_MISSED, CALL_OUTCOME_VOICEMAIL
+        if to_answering_machine:
+            return CALL_TYPE_MISSED, CALL_OUTCOME_NO_VOICEMAIL
         return CALL_TYPE_MISSED, CALL_OUTCOME_UNREACHED
 
     if call.type == OUT_CALL_TYPE:
