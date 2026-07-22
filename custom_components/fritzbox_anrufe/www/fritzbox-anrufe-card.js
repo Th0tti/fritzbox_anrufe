@@ -30,7 +30,21 @@
  * Includes a graphical config editor (via getConfigElement) to pick the
  * entities, which categories are shown, the row count, and which call
  * attributes/columns are shown - no YAML editing required, though YAML
- * configuration still works.
+ * configuration still works. Since v1.0.4, the editor groups its many
+ * settings into collapsible sections (Sensoren/Kategorien/Darstellung/
+ * Weiterverarbeitung/Farben) via <ha-form>'s "expandable" schema type with
+ * `flatten: true` - the resulting config stays a flat object (identical
+ * YAML keys as before), the grouping is purely visual. This relies on a
+ * reasonably recent Home Assistant frontend; NOT confirmed against real
+ * hardware/every HA version - please open a GitHub issue if the editor
+ * renders oddly (e.g. ungrouped, or with a stray top-level key) on your
+ * instance.
+ *
+ * Since v1.0.4, most icon/symbol colors are also configurable (editor
+ * group "Farben", `color_*` config keys below) - each accepts a CSS color
+ * value (hex, rgb()/rgba(), hsl(), or a CSS variable reference) and falls
+ * back to the previous hard-coded theme-color default when left empty, so
+ * existing dashboards render unchanged unless a color is explicitly set.
  *
  * Playback: the FRITZ!Box audio recording is served by this integration's
  * own authenticated proxy endpoint (see http.py), which requires a valid
@@ -89,6 +103,13 @@
  *   show_processing_eingehend: false
  *   show_processing_ausgehend: false
  *   show_processing_verpasst: false
+ *   color_tab_active: ""
+ *   color_success: ""
+ *   color_error: ""
+ *   color_playback: ""
+ *   color_vip: ""
+ *   color_row_icon: ""
+ *   color_live_banner: ""
  */
 
 const FILTER_ALL = "alle";
@@ -126,32 +147,38 @@ const LIVE_ACTIVE_STATES = new Set(Object.keys(LIVE_STATE_LABELS));
 
 // "Weiterverarbeitung"-Zeile (seit v1.0.3, siehe Moduldoku oben): Zuordnung
 // call.outcome (server-seitig berechnet, siehe call_log.py:_classify_call)
-// -> Icon/Beschriftung/Farbe/Ziel-Tab. "playable" statt "tab": Klick spielt
-// die verlinkte Aufnahme direkt ab, statt nur den Tab zu wechseln - siehe
-// _renderProcessingRow()/playCallRecording().
+// -> Icon/Beschriftung/Farb-Kategorie/Ziel-Tab. "playable" statt "tab":
+// Klick spielt die verlinkte Aufnahme direkt ab, statt nur den Tab zu
+// wechseln - siehe _renderProcessingRow()/playCallRecording().
+//
+// "colorKind" (seit v1.0.4, statt einer festen Farbe direkt hier): verweist
+// auf eine der drei benutzerdefinierbaren Farbgruppen aus PROCESSING_COLOR_VARS
+// unten (success/error/playback) - siehe dort für die tatsächliche CSS-
+// Custom-Property samt Standardwert, und den Editor-Bereich "Farben" für
+// die Konfigurationsoberfläche.
 const PROCESSING_META = {
   beantwortet: {
     icon: "mdi:phone-check",
     label: "Angenommen",
-    color: "var(--success-color, #4caf50)",
+    colorKind: "success",
     tab: "eingehend",
   },
   verbunden: {
     icon: "mdi:phone-check",
     label: "Verbunden",
-    color: "var(--success-color, #4caf50)",
+    colorKind: "success",
     tab: "ausgehend",
   },
   nicht_verbunden: {
     icon: "mdi:phone-remove",
     label: "Nicht verbunden",
-    color: "var(--error-color, #db4437)",
+    colorKind: "error",
     tab: "ausgehend",
   },
   nicht_erreicht: {
     icon: "mdi:phone-missed",
     label: "Nicht erreicht",
-    color: "var(--error-color, #db4437)",
+    colorKind: "error",
     tab: "verpasst",
   },
   // Ging zum Anrufbeantworter, aber es wurde keine Nachricht hinterlassen -
@@ -162,17 +189,69 @@ const PROCESSING_META = {
   keine_nachricht: {
     icon: "mdi:phone-missed",
     label: "Keine Anrufbeantworter-Nachricht vorhanden",
-    color: "var(--error-color, #db4437)",
+    colorKind: "error",
     tab: "verpasst",
   },
   anrufbeantworter: {
     icon: "mdi:play-circle-outline",
     label: "Anrufbeantworter-Nachricht abspielen",
-    color: "var(--primary-color, #03a9f4)",
+    colorKind: "playback",
     tab: "anrufbeantworter",
     playable: true,
   },
 };
+
+// --- Konfigurierbare Farben (seit v1.0.4) -----------------------------
+//
+// Jede Farbgruppe entspricht einer CSS-Custom-Property, die _colorVars()
+// pro Karteninstanz auf Basis der Konfiguration (config-Schlüssel gleichen
+// Namens) setzt - leer/nicht gesetzt lässt den bisherigen, festen
+// Theme-Farbwert unverändert (siehe DEFAULT dort). PROCESSING_COLOR_VARS
+// bildet den obigen "colorKind" auf die jeweilige CSS-Variable ab.
+const COLOR_CONFIG_KEYS = {
+  tab_active: { cssVar: "--fba-color-tab-active", fallback: "var(--primary-color, #03a9f4)" },
+  success: { cssVar: "--fba-color-success", fallback: "var(--success-color, #4caf50)" },
+  error: { cssVar: "--fba-color-error", fallback: "var(--error-color, #db4437)" },
+  playback: { cssVar: "--fba-color-playback", fallback: "var(--primary-color, #03a9f4)" },
+  vip: { cssVar: "--fba-color-vip", fallback: "var(--warning-color, #ff9800)" },
+  row_icon: { cssVar: "--fba-color-row-icon", fallback: "var(--secondary-text-color, #727272)" },
+  live_banner: {
+    cssVar: "--fba-color-live-banner",
+    fallback: "var(--state-icon-active-color, #03a9f4)",
+  },
+};
+
+const PROCESSING_COLOR_VARS = {
+  success: "var(--fba-color-success)",
+  error: "var(--fba-color-error)",
+  playback: "var(--fba-color-playback)",
+};
+
+// Defensive allowlist for user-supplied color values before they land
+// inside a <style> block (via innerHTML, see _render()): permits hex
+// codes, rgb()/rgba()/hsl()/hsla(), CSS variable references
+// (var(--name, fallback)) and plain color-word characters, but rejects
+// anything containing characters that could break out of the custom
+// property declaration or the <style> tag itself (";", "{", "}", "<",
+// ">", quotes, ...). An invalid value is treated the same as "not set"
+// (falls back to the theme default) rather than raising an error, since
+// this runs on every render.
+const SAFE_COLOR_RE = /^[a-zA-Z0-9#(),.%\-\s]+$/;
+
+function sanitizeColor(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  if (!SAFE_COLOR_RE.test(trimmed)) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      "fritzbox_anrufe: ungültiger Farbwert ignoriert (nur Hex/rgb()/hsl()/var()/CSS-Farbnamen" +
+        " erlaubt):",
+      value
+    );
+    return "";
+  }
+  return trimmed;
+}
 
 const CONFIG_DEFAULTS = {
   title: "FRITZ!Box Anrufe",
@@ -201,6 +280,15 @@ const CONFIG_DEFAULTS = {
   show_processing_eingehend: false,
   show_processing_ausgehend: false,
   show_processing_verpasst: false,
+  // Farben (seit v1.0.4) - leer = bisheriger, fester Theme-Farbwert (siehe
+  // COLOR_CONFIG_KEYS oben für die jeweiligen Standardwerte).
+  color_tab_active: "",
+  color_success: "",
+  color_error: "",
+  color_playback: "",
+  color_vip: "",
+  color_row_icon: "",
+  color_live_banner: "",
 };
 
 function withDefaults(config) {
@@ -286,11 +374,33 @@ function renderVoicemailRows(messages, opts) {
 
 const BASE_CARD_STYLES = `
   ha-card { overflow: hidden; }
-  .card-content { padding: 8px 16px 16px; }
+  /* container-type/-name (seit v1.0.4): lässt die Tab-Leiste unten auf die
+     tatsächliche Breite DIESER KARTE reagieren statt auf die Browser-
+     Fensterbreite (siehe TABS_CONTAINER_QUERY_STYLES unten für den Grund -
+     das bestehende @media-Breakpoint für Smartphones griff auf einer
+     schmalen Desktop-Dashboard-Spalte nie, weil der Browser selbst breit
+     genug war). Modernes CSS-Feature (Container Queries) - falls der
+     Browser es nicht unterstützt, greift ersatzweise nur die
+     min-width/ellipsis-Absicherung direkt an .tab/.tab span, die
+     Kategorie-Leiste läuft dann nie in einen Scrollbalken, kann aber
+     Beschriftungen abschneiden statt komplett auf Icons umzuschalten. */
+  .card-content { padding: 8px 16px 16px; container-type: inline-size; container-name: fba; }
   .empty {
     padding: 24px 0;
     text-align: center;
     color: var(--secondary-text-color, #727272);
+  }
+`;
+
+// Schwelle empirisch ermittelt (siehe PR-Beschreibung/Commit): bei den fünf
+// Tabs "Alle"/"Angenommen"/"Ausgehend"/"Verpasst"/"Anrufbeantworter" passt
+// der volle Text ab ca. 488px Innenbreite der Karte ohne jede Kürzung -
+// darunter wird auf reine Icons umgeschaltet (mit Tooltip via title="...",
+// siehe _renderTabs()), statt Labels hässlich mitten im Wort abzuschneiden.
+const TABS_CONTAINER_QUERY_STYLES = `
+  @container fba (max-width: 480px) {
+    .tab span { display: none; }
+    .tab ha-icon { --mdc-icon-size: 22px; }
   }
 `;
 
@@ -304,14 +414,14 @@ const VOICEMAIL_ROWS_STYLES = `
     border-radius: 8px;
     background: var(--secondary-background-color, rgba(0, 0, 0, 0.04));
   }
-  .voicemail-row.unread { border-left: 3px solid var(--primary-color, #03a9f4); }
+  .voicemail-row.unread { border-left: 3px solid var(--fba-color-playback); }
   .voicemail-main { display: flex; flex-direction: column; gap: 2px; }
   .voicemail-primary { display: flex; align-items: center; gap: 6px; }
   .voicemail-name { font-weight: 500; }
   .voicemail-badge {
     font-size: 0.7em;
     text-transform: uppercase;
-    background: var(--primary-color, #03a9f4);
+    background: var(--fba-color-playback);
     color: var(--text-primary-color, #fff);
     border-radius: 4px;
     padding: 1px 6px;
@@ -332,7 +442,7 @@ const VOICEMAIL_ROWS_STYLES = `
     border: none;
     border-radius: 6px;
     padding: 6px 10px;
-    background: var(--primary-color, #03a9f4);
+    background: var(--fba-color-playback);
     color: var(--text-primary-color, #fff);
     font: inherit;
     font-size: 0.85em;
@@ -631,10 +741,11 @@ class FritzboxAnrufeCard extends HTMLElement {
       .join(" ");
     const clickable = canPlay || !!meta.tab;
 
+    const color = PROCESSING_COLOR_VARS[meta.colorKind] || "inherit";
     return `
       <div class="row-processing ${clickable ? "clickable" : ""}" ${attrs} title="${escapeHtml(meta.label)}">
         <span class="row-processing-arrow" aria-hidden="true">↳</span>
-        <ha-icon icon="${meta.icon}" style="color: ${meta.color};"></ha-icon>
+        <ha-icon icon="${meta.icon}" style="color: ${color};"></ha-icon>
         <span class="row-processing-label">${escapeHtml(meta.label)}</span>
       </div>
     `;
@@ -801,8 +912,26 @@ class FritzboxAnrufeCard extends HTMLElement {
     });
   }
 
+  // CSS-Custom-Property-Deklarationen für alle konfigurierbaren Farben
+  // (seit v1.0.4) - ein leerer/nicht gesetzter config-Wert fällt auf den
+  // bisherigen, festen Theme-Farbwert zurück (COLOR_CONFIG_KEYS), ein
+  // ungültiger Wert wird von sanitizeColor() verworfen (ebenfalls Fallback).
+  _colorVars() {
+    const cfg = this._config || {};
+    return Object.entries(COLOR_CONFIG_KEYS)
+      .map(([key, { cssVar, fallback }]) => {
+        const value = sanitizeColor(cfg[`color_${key}`]) || fallback;
+        return `${cssVar}: ${value};`;
+      })
+      .join("\n        ");
+  }
+
   _styles() {
     return `
+      :host {
+        ${this._colorVars()}
+      }
+
       ${BASE_CARD_STYLES}
 
       .live-banner {
@@ -812,7 +941,7 @@ class FritzboxAnrufeCard extends HTMLElement {
         padding: 10px 12px;
         margin-bottom: 12px;
         border-radius: 8px;
-        background: var(--state-icon-active-color, #03a9f4);
+        background: var(--fba-color-live-banner);
         color: var(--text-primary-color, #fff);
       }
       .live-banner ha-icon { --mdc-icon-size: 28px; flex-shrink: 0; }
@@ -838,6 +967,15 @@ class FritzboxAnrufeCard extends HTMLElement {
         align-items: center;
         gap: 6px;
         flex: 1 1 auto;
+        /* min-width: 0 overrides the flexbox default of "min-width: auto"
+           (= the label's un-wrapped content width), which is what let a
+           tab's own label force the whole .tabs row wider than the card
+           and trigger its horizontal scrollbar - most noticeably once
+           "Eingehend" (v1.0.3) became the longer "Angenommen". With this,
+           a tab can now shrink below its label's natural width; the label
+           itself truncates with an ellipsis (see ".tab span" below)
+           instead of forcing an overflow. */
+        min-width: 0;
         justify-content: center;
         background: none;
         border: none;
@@ -848,13 +986,17 @@ class FritzboxAnrufeCard extends HTMLElement {
         font: inherit;
         white-space: nowrap;
       }
-      .tab ha-icon { --mdc-icon-size: 20px; }
+      .tab ha-icon { --mdc-icon-size: 20px; flex-shrink: 0; }
       .tab.active {
-        color: var(--primary-color, #03a9f4);
-        border-bottom-color: var(--primary-color, #03a9f4);
+        color: var(--fba-color-tab-active);
+        border-bottom-color: var(--fba-color-tab-active);
         font-weight: 600;
       }
-      .tab span { font-size: 0.8em; }
+      .tab span {
+        font-size: 0.8em;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
 
       .rows { display: flex; flex-direction: column; }
       .row {
@@ -867,7 +1009,7 @@ class FritzboxAnrufeCard extends HTMLElement {
       .row:last-child { border-bottom: none; }
       .row-icon {
         flex-shrink: 0;
-        color: var(--secondary-text-color, #727272);
+        color: var(--fba-color-row-icon);
         --mdc-icon-size: 20px;
       }
       .row-main { flex: 1 1 auto; min-width: 0; }
@@ -878,7 +1020,7 @@ class FritzboxAnrufeCard extends HTMLElement {
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .vip { --mdc-icon-size: 14px; color: var(--warning-color, #ff9800); }
+      .vip { --mdc-icon-size: 14px; color: var(--fba-color-vip); }
       .row-secondary {
         display: flex;
         gap: 8px;
@@ -902,6 +1044,7 @@ class FritzboxAnrufeCard extends HTMLElement {
 
       ${VOICEMAIL_ROWS_STYLES}
       ${PROCESSING_ROW_STYLES}
+      ${TABS_CONTAINER_QUERY_STYLES}
 
       /* --- Responsive: schmale Ansicht (Smartphone) --- */
       @media (max-width: 500px) {
@@ -947,42 +1090,136 @@ const EDITOR_LABELS = {
   show_processing_eingehend: "Weiterverarbeitung bei 'Angenommen' anzeigen",
   show_processing_ausgehend: "Weiterverarbeitung bei 'Ausgehend' anzeigen",
   show_processing_verpasst: "Weiterverarbeitung bei 'Verpasst' anzeigen",
+  // Farben (seit v1.0.4) - siehe COLOR_CONFIG_KEYS/PROCESSING_COLOR_VARS
+  // oben für die jeweils betroffenen Icons/Symbole.
+  color_tab_active: "Farbe: aktiver Tab",
+  color_success: "Farbe: erfolgreich (angenommen/verbunden)",
+  color_error: "Farbe: nicht erfolgreich (nicht erreicht/nicht verbunden)",
+  color_playback: "Farbe: Wiedergabe (Abspielen-Button, Anrufbeantworter-Symbol, 'Neu'-Markierung)",
+  color_vip: "Farbe: VIP-Markierung",
+  color_row_icon: "Farbe: Anruf-Symbole in der Liste",
+  color_live_banner: "Farbe: Live-Banner-Hintergrund",
+};
+
+// Kurzer Hilfetext unter den Farbfeldern (ha-form's computeHelper, falls von
+// der jeweiligen Home-Assistant-Frontend-Version unterstützt - andernfalls
+// wird er schlicht ignoriert, siehe _renderConfig()).
+const EDITOR_COLOR_HELPER =
+  "CSS-Farbwert, z. B. #4caf50, rgb(76,175,80) oder ein Theme-Farbname wie" +
+  " var(--accent-color) - leer lassen für die Standardfarbe.";
+
+const EDITOR_HELPERS = {
+  color_tab_active: EDITOR_COLOR_HELPER,
+  color_success: EDITOR_COLOR_HELPER,
+  color_error: EDITOR_COLOR_HELPER,
+  color_playback: EDITOR_COLOR_HELPER,
+  color_vip: EDITOR_COLOR_HELPER,
+  color_row_icon: EDITOR_COLOR_HELPER,
+  color_live_banner: EDITOR_COLOR_HELPER,
 };
 
 function computeEditorLabel(schemaItem) {
   return EDITOR_LABELS[schemaItem.name] || schemaItem.name;
 }
 
+function computeEditorHelper(schemaItem) {
+  return EDITOR_HELPERS[schemaItem.name] || "";
+}
+
+// Seit v1.0.4 in Abschnitte gruppiert (Home Assistant seit einiger Zeit als
+// <ha-form>-Schema-Typ "expandable" verfügbar), damit der mittlerweile recht
+// lange Editor übersichtlich bleibt - per Nutzerwunsch, nachdem die Liste
+// der Einzelfelder unhandlich geworden war. "flatten: true" sorgt dafür,
+// dass die Werte trotz der visuellen Gruppierung weiterhin als flaches
+// Konfigurationsobjekt gespeichert werden (identische YAML-Schlüssel wie
+// zuvor) - siehe Moduldoku oben für den Hinweis zur Versionsabhängigkeit.
 const EDITOR_SCHEMA = [
   { name: "title", selector: { text: {} } },
-  { name: "entity_live", selector: { entity: { domain: "sensor" } } },
-  { name: "entity_eingehend", selector: { entity: { domain: "sensor" } } },
-  { name: "entity_ausgehend", selector: { entity: { domain: "sensor" } } },
-  { name: "entity_verpasst", selector: { entity: { domain: "sensor" } } },
-  { name: "entity_voicemail", selector: { entity: { domain: "sensor" } } },
-  // "slider" statt "box": das Zahlenfeld ("box") ließ sich bei manchen
-  // Nutzern nicht zuverlässig per Tastatur bearbeiten (Eingaben wurden
-  // teils zurückgesetzt) - ein Schieberegler kommt komplett ohne
-  // Texteingabe aus und umgeht das Problem. Wer mehr als 15 Zeilen
-  // braucht, kann max_rows weiterhin über den YAML-Editor der Karte auf
-  // einen beliebigen Wert setzen.
-  { name: "max_rows", selector: { number: { min: 1, max: 15, step: 1, mode: "slider" } } },
-  { name: "show_alle", selector: { boolean: {} } },
-  { name: "show_eingehend", selector: { boolean: {} } },
-  { name: "show_ausgehend", selector: { boolean: {} } },
-  { name: "show_verpasst", selector: { boolean: {} } },
-  { name: "show_anrufbeantworter", selector: { boolean: {} } },
-  { name: "show_name", selector: { boolean: {} } },
-  { name: "show_number", selector: { boolean: {} } },
-  { name: "show_own_number", selector: { boolean: {} } },
-  { name: "show_device", selector: { boolean: {} } },
-  { name: "show_duration", selector: { boolean: {} } },
-  { name: "show_date", selector: { boolean: {} } },
-  { name: "show_vip", selector: { boolean: {} } },
-  { name: "show_processing_alle", selector: { boolean: {} } },
-  { name: "show_processing_eingehend", selector: { boolean: {} } },
-  { name: "show_processing_ausgehend", selector: { boolean: {} } },
-  { name: "show_processing_verpasst", selector: { boolean: {} } },
+  {
+    name: "",
+    type: "expandable",
+    title: "Sensoren",
+    icon: "mdi:radar",
+    flatten: true,
+    expanded: true,
+    schema: [
+      { name: "entity_live", selector: { entity: { domain: "sensor" } } },
+      { name: "entity_eingehend", selector: { entity: { domain: "sensor" } } },
+      { name: "entity_ausgehend", selector: { entity: { domain: "sensor" } } },
+      { name: "entity_verpasst", selector: { entity: { domain: "sensor" } } },
+      { name: "entity_voicemail", selector: { entity: { domain: "sensor" } } },
+    ],
+  },
+  {
+    name: "",
+    type: "expandable",
+    title: "Kategorien",
+    icon: "mdi:filter-variant",
+    flatten: true,
+    expanded: false,
+    schema: [
+      { name: "show_alle", selector: { boolean: {} } },
+      { name: "show_eingehend", selector: { boolean: {} } },
+      { name: "show_ausgehend", selector: { boolean: {} } },
+      { name: "show_verpasst", selector: { boolean: {} } },
+      { name: "show_anrufbeantworter", selector: { boolean: {} } },
+    ],
+  },
+  {
+    name: "",
+    type: "expandable",
+    title: "Darstellung",
+    icon: "mdi:table-column",
+    flatten: true,
+    expanded: false,
+    schema: [
+      // "slider" statt "box": das Zahlenfeld ("box") ließ sich bei manchen
+      // Nutzern nicht zuverlässig per Tastatur bearbeiten (Eingaben wurden
+      // teils zurückgesetzt) - ein Schieberegler kommt komplett ohne
+      // Texteingabe aus und umgeht das Problem. Wer mehr als 15 Zeilen
+      // braucht, kann max_rows weiterhin über den YAML-Editor der Karte auf
+      // einen beliebigen Wert setzen.
+      { name: "max_rows", selector: { number: { min: 1, max: 15, step: 1, mode: "slider" } } },
+      { name: "show_name", selector: { boolean: {} } },
+      { name: "show_number", selector: { boolean: {} } },
+      { name: "show_own_number", selector: { boolean: {} } },
+      { name: "show_device", selector: { boolean: {} } },
+      { name: "show_duration", selector: { boolean: {} } },
+      { name: "show_date", selector: { boolean: {} } },
+      { name: "show_vip", selector: { boolean: {} } },
+    ],
+  },
+  {
+    name: "",
+    type: "expandable",
+    title: "Weiterverarbeitung",
+    icon: "mdi:arrow-decision-outline",
+    flatten: true,
+    expanded: false,
+    schema: [
+      { name: "show_processing_alle", selector: { boolean: {} } },
+      { name: "show_processing_eingehend", selector: { boolean: {} } },
+      { name: "show_processing_ausgehend", selector: { boolean: {} } },
+      { name: "show_processing_verpasst", selector: { boolean: {} } },
+    ],
+  },
+  {
+    name: "",
+    type: "expandable",
+    title: "Farben",
+    icon: "mdi:palette-outline",
+    flatten: true,
+    expanded: false,
+    schema: [
+      { name: "color_tab_active", selector: { text: {} } },
+      { name: "color_success", selector: { text: {} } },
+      { name: "color_error", selector: { text: {} } },
+      { name: "color_playback", selector: { text: {} } },
+      { name: "color_vip", selector: { text: {} } },
+      { name: "color_row_icon", selector: { text: {} } },
+      { name: "color_live_banner", selector: { text: {} } },
+    ],
+  },
 ];
 
 class FritzboxAnrufeCardEditor extends HTMLElement {
@@ -1030,6 +1267,10 @@ class FritzboxAnrufeCardEditor extends HTMLElement {
       this._form.addEventListener("value-changed", (ev) => this._valueChanged(ev));
       this._form.schema = EDITOR_SCHEMA;
       this._form.computeLabel = computeEditorLabel;
+      // computeHelper is a newer <ha-form> hook (short description text
+      // under a field); if the running frontend version doesn't support it,
+      // it's simply never called - safe to always set.
+      this._form.computeHelper = computeEditorHelper;
       this.appendChild(this._form);
     }
     this._form.hass = this._hass;
