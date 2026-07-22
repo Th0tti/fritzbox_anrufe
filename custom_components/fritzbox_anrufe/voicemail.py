@@ -84,15 +84,56 @@ class FritzTamCoordinator(DataUpdateCoordinator[list[TamMessage]]):
         ever needs a valid Home Assistant session to play a recording,
         never FRITZ!Box credentials directly - this whole exchange happens
         server-side.
+
+        Real-world bug fixed here (reported via a user of Thorsten's,
+        HTTP 500 instead of the intended 502): determining ``origin``
+        (:attr:`FritzHttp.router_url`, which can trigger its own TR-064 call
+        if the configured host uses ``https://``) and iterating the
+        fallback classic-web-UI login in :meth:`_sid_candidates`
+        (``FritzHttp._get_sid`` - not confirmed against every FRITZ!OS/
+        network configuration, e.g. HTTPS-only web-UI access) were not
+        wrapped in any exception handling at all. Any failure there -
+        anything from a TR-064 permission error to an XML parse error on an
+        unexpected login-page response - propagated all the way out of the
+        executor job as an *unhandled* exception, which ``http.py``'s
+        ``except RequestException`` could never catch, so it surfaced to
+        the browser as a raw, undiagnosable HTTP 500 instead of the
+        intended 502 (with a descriptive WARNING log line). Both spots are
+        now wrapped broadly (not just the two specific exception types used
+        elsewhere in this method) precisely because this fallback path is
+        still unconfirmed territory - see the module docstring in
+        ``tam.py`` - so an unanticipated exception type is expected to
+        surface here sooner or later.
         """
         if not message.Path:
             raise RequestException("message has no audio path")
 
-        origin = self._http.router_url
+        try:
+            origin = self._http.router_url
+        except Exception as ex:  # noqa: BLE001 - see docstring above
+            raise RequestException(
+                "Anrufbeantworter-Download: konnte FRITZ!Box-Webadresse nicht"
+                f" ermitteln ({type(ex).__name__}: {ex})"
+            ) from ex
+
         last_status: int | None = None
         tried = 0
+        sid_candidates = self._sid_candidates()
 
-        for sid in self._sid_candidates():
+        while True:
+            try:
+                sid = next(sid_candidates)
+            except StopIteration:
+                break
+            except Exception as ex:  # noqa: BLE001 - see docstring above
+                _LOGGER.warning(
+                    "Anrufbeantworter-Download: Sitzungs-ID konnte nicht"
+                    " ermittelt werden (%s: %s)",
+                    type(ex).__name__,
+                    ex,
+                )
+                continue
+
             url = self._fritz_tam.build_download_url(message, sid, origin)
             if not url:
                 raise RequestException("message has no audio path")
