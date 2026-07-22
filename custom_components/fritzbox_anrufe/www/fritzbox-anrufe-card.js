@@ -45,6 +45,20 @@
  * value (hex, rgb()/rgba(), hsl(), or a CSS variable reference) and falls
  * back to the previous hard-coded theme-color default when left empty, so
  * existing dashboards render unchanged unless a color is explicitly set.
+ * Since v1.0.4b1 the 5 category-tab icons (Alle/Angenommen/Ausgehend/
+ * Verpasst/Anrufbeantworter) can also be colored individually and
+ * independently of the tab's active/inactive state (`color_icon_*` keys) -
+ * see CATEGORY_ICON_COLOR_KEYS/_renderTabs() below. Also since v1.0.4b1,
+ * the "Farben" editor group is no longer rendered via <ha-form> like the
+ * other groups; it's built from plain, always-supported HTML instead
+ * (native <input type="color"> swatch plus a text field per color, see
+ * FritzboxAnrufeCardEditor._buildColorSection()) so every field gets a
+ * graphical color picker AND shows the color currently in effect
+ * (explicit value or resolved default) - something <ha-form>'s generic
+ * text selector couldn't offer. This also means the color section no
+ * longer carries the same "unconfirmed against every HA frontend version"
+ * caveat as the other 4 accordion groups (native <details>/<input>, not an
+ * HA-specific component).
  *
  * Playback: the FRITZ!Box audio recording is served by this integration's
  * own authenticated proxy endpoint (see http.py), which requires a valid
@@ -110,6 +124,11 @@
  *   color_vip: ""
  *   color_row_icon: ""
  *   color_live_banner: ""
+ *   color_icon_alle: ""
+ *   color_icon_eingehend: ""
+ *   color_icon_ausgehend: ""
+ *   color_icon_verpasst: ""
+ *   color_icon_anrufbeantworter: ""
  */
 
 const FILTER_ALL = "alle";
@@ -227,6 +246,23 @@ const PROCESSING_COLOR_VARS = {
   playback: "var(--fba-color-playback)",
 };
 
+// Kategorie-Tab-Icon-Farben (seit v1.0.4b1) - eine Farbe je Kategorie
+// (Alle/Angenommen/Ausgehend/Verpasst/Anrufbeantworter), unabhängig vom
+// Tab-Status. Anders als COLOR_CONFIG_KEYS oben (eine gemeinsame CSS-
+// Custom-Property über :host für die ganze Karte) braucht jede Kategorie
+// hier einen eigenen, unabhängigen Wert - die Farbe wird deshalb direkt als
+// Inline-Style auf das jeweilige <ha-icon> geschrieben (siehe _renderTabs())
+// statt über eine gemeinsame Property. Leer/ungesetzt = kein Inline-Style,
+// d.h. das Icon folgt weiterhin wie bisher der Tab-Farbe (color_tab_active
+// bei aktivem Tab, sonst die sekundäre Textfarbe).
+const CATEGORY_ICON_COLOR_KEYS = {
+  alle: "color_icon_alle",
+  eingehend: "color_icon_eingehend",
+  ausgehend: "color_icon_ausgehend",
+  verpasst: "color_icon_verpasst",
+  anrufbeantworter: "color_icon_anrufbeantworter",
+};
+
 // Defensive allowlist for user-supplied color values before they land
 // inside a <style> block (via innerHTML, see _render()): permits hex
 // codes, rgb()/rgba()/hsl()/hsla(), CSS variable references
@@ -289,6 +325,13 @@ const CONFIG_DEFAULTS = {
   color_vip: "",
   color_row_icon: "",
   color_live_banner: "",
+  // Kategorie-Tab-Icon-Farben (seit v1.0.4b1) - siehe CATEGORY_ICON_COLOR_KEYS
+  // oben. Leer = Icon folgt weiterhin der Tab-Farbe (aktiv/inaktiv).
+  color_icon_alle: "",
+  color_icon_eingehend: "",
+  color_icon_ausgehend: "",
+  color_icon_verpasst: "",
+  color_icon_anrufbeantworter: "",
 };
 
 function withDefaults(config) {
@@ -773,12 +816,20 @@ class FritzboxAnrufeCard extends HTMLElement {
   _renderTabs() {
     const visible = this._visibleFilterTypes();
     if (visible.length <= 1) return "";
+    const cfg = this._config || {};
     return `
       <div class="tabs" role="tablist">
         ${visible
           .map((type) => {
             const meta = FILTER_META[type];
             const active = type === this._activeFilter ? "active" : "";
+            // Optionale, pro Kategorie feste Icon-Farbe (seit v1.0.4b1) -
+            // per Inline-Style, damit sie (falls gesetzt) die geerbte
+            // Tab-Farbe (aktiv/inaktiv) überschreibt; ungesetzt/ungültig
+            // bleibt das Icon wie bisher beim geerbten Wert.
+            const iconColorKey = CATEGORY_ICON_COLOR_KEYS[type];
+            const iconColor = iconColorKey ? sanitizeColor(cfg[iconColorKey]) : "";
+            const iconStyle = iconColor ? ` style="color: ${iconColor};"` : "";
             return `
               <button
                 class="tab ${active}"
@@ -787,7 +838,7 @@ class FritzboxAnrufeCard extends HTMLElement {
                 data-filter="${type}"
                 title="${escapeHtml(meta.label)}"
               >
-                <ha-icon icon="${meta.icon}"></ha-icon>
+                <ha-icon icon="${meta.icon}"${iconStyle}></ha-icon>
                 <span>${escapeHtml(meta.label)}</span>
               </button>
             `;
@@ -1090,33 +1141,17 @@ const EDITOR_LABELS = {
   show_processing_eingehend: "Weiterverarbeitung bei 'Angenommen' anzeigen",
   show_processing_ausgehend: "Weiterverarbeitung bei 'Ausgehend' anzeigen",
   show_processing_verpasst: "Weiterverarbeitung bei 'Verpasst' anzeigen",
-  // Farben (seit v1.0.4) - siehe COLOR_CONFIG_KEYS/PROCESSING_COLOR_VARS
-  // oben für die jeweils betroffenen Icons/Symbole.
-  color_tab_active: "Farbe: aktiver Tab",
-  color_success: "Farbe: erfolgreich (angenommen/verbunden)",
-  color_error: "Farbe: nicht erfolgreich (nicht erreicht/nicht verbunden)",
-  color_playback: "Farbe: Wiedergabe (Abspielen-Button, Anrufbeantworter-Symbol, 'Neu'-Markierung)",
-  color_vip: "Farbe: VIP-Markierung",
-  color_row_icon: "Farbe: Anruf-Symbole in der Liste",
-  color_live_banner: "Farbe: Live-Banner-Hintergrund",
+  // Farben (seit v1.0.4, seit v1.0.4b1 nicht mehr über <ha-form> gerendert)
+  // sind hier absichtlich NICHT mehr gelistet - siehe COLOR_EDITOR_FIELDS
+  // und FritzboxAnrufeCardEditor._buildColorSection() weiter unten.
 };
 
-// Kurzer Hilfetext unter den Farbfeldern (ha-form's computeHelper, falls von
-// der jeweiligen Home-Assistant-Frontend-Version unterstützt - andernfalls
-// wird er schlicht ignoriert, siehe _renderConfig()).
-const EDITOR_COLOR_HELPER =
-  "CSS-Farbwert, z. B. #4caf50, rgb(76,175,80) oder ein Theme-Farbname wie" +
-  " var(--accent-color) - leer lassen für die Standardfarbe.";
-
-const EDITOR_HELPERS = {
-  color_tab_active: EDITOR_COLOR_HELPER,
-  color_success: EDITOR_COLOR_HELPER,
-  color_error: EDITOR_COLOR_HELPER,
-  color_playback: EDITOR_COLOR_HELPER,
-  color_vip: EDITOR_COLOR_HELPER,
-  color_row_icon: EDITOR_COLOR_HELPER,
-  color_live_banner: EDITOR_COLOR_HELPER,
-};
+// EDITOR_HELPERS/computeEditorHelper: aktuell ungenutzt (die einzigen Felder
+// mit Hilfetext waren die Farbfelder, die seit v1.0.4b1 über die eigene
+// COLOR_EDITOR_FIELDS-Sektion statt über <ha-form> laufen - siehe unten).
+// _form.computeHelper bleibt trotzdem gesetzt (siehe _renderConfig()), damit
+// künftige Felder mit Hilfetext ohne weiteren Umbau möglich sind.
+const EDITOR_HELPERS = {};
 
 function computeEditorLabel(schemaItem) {
   return EDITOR_LABELS[schemaItem.name] || schemaItem.name;
@@ -1203,24 +1238,139 @@ const EDITOR_SCHEMA = [
       { name: "show_processing_verpasst", selector: { boolean: {} } },
     ],
   },
+  // Keine "Farben"-Gruppe mehr hier (siehe Moduldoku oben) - die Sektion
+  // wird seit v1.0.4b1 separat, nativ und mit grafischer Farbauswahl von
+  // FritzboxAnrufeCardEditor._buildColorSection() gerendert.
+];
+
+// --- Farben-Editor (seit v1.0.4b1) ------------------------------------
+//
+// Ein Eintrag je konfigurierbarer Farbe: config-Schlüssel, Beschriftung,
+// ein Hex-Näherungswert für das grafische <input type="color">-Swatch bzw.
+// den "aktuell verwendet"-Hilfetext, und optional eine zusätzliche Notiz
+// (bei den 5 Kategorie-Icon-Farben, deren tatsächlicher Standard vom
+// Tab-Status abhängt statt eines einzelnen festen Werts). fallbackHex ist
+// bewusst NUR eine Näherung fürs Editor-UI - der tatsächliche CSS-Fallback
+// (inkl. Theme-Variable, z. B. "var(--success-color, #4caf50)") bleibt
+// COLOR_CONFIG_KEYS/PROCESSING_COLOR_VARS vorbehalten und wird weiterhin
+// dort verwendet, wenn die Karte selbst rendert.
+const CATEGORY_ICON_COLOR_NOTE =
+  "Standard: folgt der Tab-Farbe (aktiv/inaktiv) - hier unabhängig vom Tab-Status fest einstellbar.";
+
+const COLOR_EDITOR_FIELDS = [
+  { key: "color_tab_active", label: "Aktiver Tab", fallbackHex: "#03a9f4" },
+  { key: "color_success", label: "Erfolgreich (angenommen/verbunden)", fallbackHex: "#4caf50" },
   {
-    name: "",
-    type: "expandable",
-    title: "Farben",
-    icon: "mdi:palette-outline",
-    flatten: true,
-    expanded: false,
-    schema: [
-      { name: "color_tab_active", selector: { text: {} } },
-      { name: "color_success", selector: { text: {} } },
-      { name: "color_error", selector: { text: {} } },
-      { name: "color_playback", selector: { text: {} } },
-      { name: "color_vip", selector: { text: {} } },
-      { name: "color_row_icon", selector: { text: {} } },
-      { name: "color_live_banner", selector: { text: {} } },
-    ],
+    key: "color_error",
+    label: "Nicht erfolgreich (nicht erreicht/nicht verbunden)",
+    fallbackHex: "#db4437",
+  },
+  {
+    key: "color_playback",
+    label: "Wiedergabe (Abspielen-Button, Anrufbeantworter-Symbol, 'Neu'-Markierung)",
+    fallbackHex: "#03a9f4",
+  },
+  { key: "color_vip", label: "VIP-Markierung", fallbackHex: "#ff9800" },
+  { key: "color_row_icon", label: "Anruf-Symbole in der Liste", fallbackHex: "#727272" },
+  { key: "color_live_banner", label: "Live-Banner-Hintergrund", fallbackHex: "#03a9f4" },
+  {
+    key: "color_icon_alle",
+    label: "Symbol Kategorie 'Alle'",
+    fallbackHex: "#727272",
+    note: CATEGORY_ICON_COLOR_NOTE,
+  },
+  {
+    key: "color_icon_eingehend",
+    label: "Symbol Kategorie 'Angenommen'",
+    fallbackHex: "#727272",
+    note: CATEGORY_ICON_COLOR_NOTE,
+  },
+  {
+    key: "color_icon_ausgehend",
+    label: "Symbol Kategorie 'Ausgehend'",
+    fallbackHex: "#727272",
+    note: CATEGORY_ICON_COLOR_NOTE,
+  },
+  {
+    key: "color_icon_verpasst",
+    label: "Symbol Kategorie 'Verpasst'",
+    fallbackHex: "#727272",
+    note: CATEGORY_ICON_COLOR_NOTE,
+  },
+  {
+    key: "color_icon_anrufbeantworter",
+    label: "Symbol Kategorie 'Anrufbeantworter'",
+    fallbackHex: "#727272",
+    note: CATEGORY_ICON_COLOR_NOTE,
   },
 ];
+
+// <input type="color"> verlangt zwingend die 6-stellige #rrggbb-Form -
+// weder 3-stellige Kurzschreibweise (#4c5) noch rgb()/hsl()/var()/
+// Farbnamen werden akzeptiert. Wird zum Anzeigen eines evtl. 3-stelligen
+// Hex-Fallbacks im Swatch gebraucht; für alles andere (rgb()/var()/...)
+// bleibt das Swatch beim fallbackHex stehen, siehe _updateColorSection().
+function normalizeHex(hex) {
+  const h = String(hex || "").replace("#", "");
+  if (h.length === 3) {
+    return "#" + h.split("").map((c) => c + c).join("");
+  }
+  return "#" + h;
+}
+
+const HEX_COLOR_RE = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/;
+
+const COLOR_EDITOR_STYLES = `
+  .fba-color-editor {
+    margin-top: 12px;
+    border: 1px solid var(--divider-color, #e0e0e0);
+    border-radius: 8px;
+    padding: 0 12px;
+  }
+  .fba-color-editor summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 0;
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--primary-text-color, #212121);
+  }
+  .fba-color-editor summary ha-icon {
+    --mdc-icon-size: 20px;
+    color: var(--secondary-text-color, #727272);
+  }
+  .fba-color-editor-body {
+    padding: 4px 0 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .fba-color-row { display: flex; flex-direction: column; gap: 4px; }
+  .fba-color-row-label { font-size: 0.9em; color: var(--primary-text-color, #212121); }
+  .fba-color-row-controls { display: flex; align-items: center; gap: 8px; }
+  .fba-color-row-controls input[type="color"] {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--divider-color, #e0e0e0);
+    border-radius: 6px;
+    cursor: pointer;
+    background: none;
+  }
+  .fba-color-row-controls input[type="text"] {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 8px;
+    border: 1px solid var(--divider-color, #e0e0e0);
+    border-radius: 6px;
+    font: inherit;
+    color: var(--primary-text-color, #212121);
+    background: var(--card-background-color, #fff);
+    box-sizing: border-box;
+  }
+  .fba-color-row-helper { font-size: 0.75em; color: var(--secondary-text-color, #727272); }
+`;
 
 class FritzboxAnrufeCardEditor extends HTMLElement {
   setConfig(config) {
@@ -1275,6 +1425,132 @@ class FritzboxAnrufeCardEditor extends HTMLElement {
     }
     this._form.hass = this._hass;
     this._form.data = this._config;
+
+    // Farben-Sektion (seit v1.0.4b1) - siehe Moduldoku und
+    // _buildColorSection() unten. Wie beim <ha-form> oben nur bei einer
+    // ECHTEN externen Config-Änderung neu befüllen (setConfig()/erster
+    // hass-Aufruf), NICHT bei jedem hass-Tick - siehe die ausführliche
+    // Begründung im hass-Setter oben, dasselbe Problem (Eingaben würden bei
+    // jedem unabhängigen hass-Update überschrieben) gilt hier genauso.
+    if (!this._colorSection) {
+      this._colorSection = this._buildColorSection();
+      this.appendChild(this._colorSection);
+    }
+    this._updateColorSection();
+  }
+
+  // Baut die "Farben"-Sektion einmalig als natives <details>-Akkordeon mit
+  // einer Zeile je COLOR_EDITOR_FIELDS-Eintrag: ein grafisches
+  // <input type="color">-Swatch (Klick öffnet den Farbwähler des
+  // Betriebssystems/Browsers) plus ein Textfeld für den vollen CSS-Wert
+  // (var()/rgb()/hsl()/Farbnamen - alles, was das Swatch selbst nicht
+  // abbilden kann). Bewusst NICHT über <ha-form> gelöst (siehe Moduldoku
+  // oben): <ha-form> hat keinen eingebauten Selector-Typ, der gleichzeitig
+  // beliebige CSS-Werte UND eine grafische Farbauswahl UND den aktuell
+  // wirksamen Wert anzeigen kann - natives HTML ist hier zugleich
+  // funktional passender und unabhängig von der HA-Frontend-Version.
+  _buildColorSection() {
+    const details = document.createElement("details");
+    details.className = "fba-color-editor";
+
+    const style = document.createElement("style");
+    style.textContent = COLOR_EDITOR_STYLES;
+    details.appendChild(style);
+
+    const summary = document.createElement("summary");
+    summary.innerHTML = `<ha-icon icon="mdi:palette-outline"></ha-icon><span>Farben</span>`;
+    details.appendChild(summary);
+
+    const body = document.createElement("div");
+    body.className = "fba-color-editor-body";
+    details.appendChild(body);
+
+    this._colorInputs = {};
+    this._focusedColorKey = null;
+
+    COLOR_EDITOR_FIELDS.forEach((field) => {
+      const row = document.createElement("div");
+      row.className = "fba-color-row";
+      row.innerHTML = `
+        <div class="fba-color-row-label">${escapeHtml(field.label)}</div>
+        <div class="fba-color-row-controls">
+          <input type="color" class="fba-color-swatch" aria-label="${escapeHtml(field.label)} (grafische Auswahl)" />
+          <input type="text" class="fba-color-text" placeholder="${escapeHtml(field.fallbackHex)}" />
+        </div>
+        <div class="fba-color-row-helper"></div>
+      `;
+      const swatch = row.querySelector(".fba-color-swatch");
+      const text = row.querySelector(".fba-color-text");
+
+      // Swatch -> Textfeld: <input type="color"> liefert immer ein gültiges
+      // #rrggbb, das direkt als CSS-Wert übernommen werden kann.
+      swatch.addEventListener("input", () => {
+        text.value = swatch.value;
+        this._onColorFieldChange(field.key, swatch.value);
+      });
+
+      // Textfeld -> config: erst bei "change" (Verlassen des Felds/Enter),
+      // nicht bei jedem Tastenanschlag - vermeidet unnötig viele
+      // config-changed-Events während des Tippens.
+      text.addEventListener("change", () => {
+        this._onColorFieldChange(field.key, text.value);
+      });
+      // _updateColorSection() darf ein Feld, das der Nutzer gerade
+      // bearbeitet, nicht überschreiben (gleiches Prinzip wie beim
+      // hass-Setter oben) - eigene Fokus-Verfolgung statt
+      // document.activeElement, da Letzteres über Shadow-DOM-Grenzen
+      // hinweg (z. B. innerhalb eines HA-Dialogs) nicht zuverlässig auf
+      // dieses konkrete <input> zeigt.
+      text.addEventListener("focus", () => {
+        this._focusedColorKey = field.key;
+      });
+      text.addEventListener("blur", () => {
+        if (this._focusedColorKey === field.key) this._focusedColorKey = null;
+      });
+
+      body.appendChild(row);
+      this._colorInputs[field.key] = { row, swatch, text };
+    });
+
+    return details;
+  }
+
+  _onColorFieldChange(key, rawValue) {
+    this._config = { ...this._config, [key]: rawValue };
+    this._updateColorSection();
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config: this._config },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  // Aktualisiert Swatch/Textfeld/Hilfetext je Farbfeld anhand von
+  // this._config - insbesondere den "aktuell verwendet"-Hinweis (expliziter
+  // Wert, sonst der Standardwert), siehe Moduldoku/Farben-Editor-Kommentar
+  // oben.
+  _updateColorSection() {
+    if (!this._colorInputs) return;
+    const cfg = this._config || {};
+    COLOR_EDITOR_FIELDS.forEach((field) => {
+      const inputs = this._colorInputs[field.key];
+      if (!inputs) return;
+      const raw = String(cfg[field.key] || "").trim();
+
+      inputs.swatch.value = HEX_COLOR_RE.test(raw) ? normalizeHex(raw) : field.fallbackHex;
+
+      if (this._focusedColorKey !== field.key) {
+        inputs.text.value = raw;
+      }
+
+      const helperParts = [
+        raw ? `Aktuell verwendet: ${raw}` : `Aktuell verwendet (Standard): ${field.fallbackHex}`,
+      ];
+      if (field.note) helperParts.push(field.note);
+      inputs.row.querySelector(".fba-color-row-helper").textContent = helperParts.join(" – ");
+    });
   }
 }
 
