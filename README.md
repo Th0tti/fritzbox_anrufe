@@ -303,7 +303,17 @@ Funktionen:
   unten für Details, wie das Abspielen technisch funktioniert.
 - Responsives Layout: auf schmalen Bildschirmen (Smartphone) werden
   Tab-Beschriftungen und die Geräte-Spalte ausgeblendet, Name/Nummer/Zeit
-  bleiben immer sichtbar.
+  bleiben immer sichtbar. Seit Version 1.0.4 reagiert die Tab-Leiste
+  zusätzlich auf die tatsächliche **Kartenbreite** (nicht nur die
+  Fensterbreite): ist die Karte selbst schmal - z. B. in einer engen
+  Dashboard-Spalte am Desktop -, blendet sie die Tab-Beschriftungen
+  ebenfalls aus, statt einen horizontalen Scrollbalken zu zeigen (siehe
+  [Bekannte Einschränkungen](#bekannte-einschränkungen) zur
+  Browser-Voraussetzung dafür).
+- Seit Version 1.0.4 lassen sich die Farben der wichtigsten Icons/Symbole
+  über den Editor-Bereich **Farben** anpassen (aktiver Tab, Weiterver-
+  arbeitungs-Icons, VIP-Markierung, Anruf-Symbole in der Liste,
+  Live-Banner-Hintergrund) - siehe **Farben** unten.
 
 Beispielkonfiguration: [`examples/dashboard_custom_card.yaml`](examples/dashboard_custom_card.yaml).
 
@@ -332,6 +342,16 @@ show_processing_alle: false
 show_processing_eingehend: false
 show_processing_ausgehend: false
 show_processing_verpasst: false
+# Farben (seit Version 1.0.4, optional) - CSS-Farbwert (Hex, rgb()/rgba(),
+# hsl(), oder eine Theme-Variable wie var(--accent-color)); leer/weggelassen
+# = bisherige Standardfarbe.
+color_tab_active: ""
+color_success: ""
+color_error: ""
+color_playback: ""
+color_vip: ""
+color_row_icon: ""
+color_live_banner: ""
 ```
 
 **Grafischer Editor:** Statt die Karte per YAML zu konfigurieren, kann sie
@@ -340,7 +360,17 @@ bearbeiten" → es öffnet sich automatisch ein Home-Assistant-Standardformular
 statt des YAML-Editors). Dort lassen sich Titel, alle fünf Sensoren sowie die
 Zeilenanzahl per Eingabefeld/Entity-Picker setzen. Die tatsächlichen
 Entity-IDs findest du unter Einstellungen → Geräte & Dienste → Entitäten
-(Suche nach "Anrufe"/"Call monitor"/"Anrufbeantworter").
+(Suche nach "Anrufe"/"Call monitor"/"Anrufbeantworter"). Seit Version 1.0.4
+ist der Editor in aufklappbare Abschnitte gruppiert (Sensoren, Kategorien,
+Darstellung, Weiterverarbeitung, Farben) - bei einer inzwischen recht langen
+Feldliste auf Wunsch von Thorsten eingeführt, um den Überblick zu behalten.
+Das ist eine rein optische Gruppierung; gespeichert wird weiterhin dieselbe
+flache YAML-Struktur wie zuvor. Voraussetzung ist ein halbwegs aktuelles
+Home-Assistant-Frontend (dieses Gruppierungsfeature war zum Zeitpunkt dieser
+Änderung noch nicht an echter Hardware bestätigt) - erscheint der Editor
+stattdessen als eine lange, ungruppierte Liste oder mit einem seltsam
+benannten Zusatzfeld, bitte als GitHub-Issue mit der Home-Assistant-Version
+melden.
 
 **Kategorien:** Fünf Schalter (`show_alle`, `show_eingehend`,
 `show_ausgehend`, `show_verpasst`, `show_anrufbeantworter`) blenden ganze
@@ -354,6 +384,28 @@ auch aus der "Alle"/"Gesamt"-Sammelansicht herausgerechnet.
 **Spalten:** Sieben weitere Schalter (`show_name`, `show_number`,
 `show_own_number`, `show_device`, `show_duration`, `show_date`, `show_vip`)
 blenden einzelne Spalten der Anrufliste ein oder aus.
+
+### Farben (seit Version 1.0.4, optional)
+
+Sieben Farbfelder passen die wichtigsten Icons/Symbole der Karte an -
+standardmäßig leer, was die bisherige, feste Theme-Farbe unverändert lässt:
+
+| Config-Schlüssel | Betrifft | Standardfarbe |
+| --- | --- | --- |
+| `color_tab_active` | Aktiver Tab (Text + Unterstrich) | `--primary-color` |
+| `color_success` | Weiterverarbeitung "Angenommen"/"Verbunden" | `--success-color` |
+| `color_error` | Weiterverarbeitung "Nicht verbunden"/"Nicht erreicht"/"Keine Anrufbeantworter-Nachricht vorhanden" | `--error-color` |
+| `color_playback` | Abspielen-Button, "Neu"-Markierung, Weiterverarbeitung "Anrufbeantworter-Nachricht abspielen" | `--primary-color` |
+| `color_vip` | VIP-Stern | `--warning-color` |
+| `color_row_icon` | Anruf-Symbol in jeder Zeile | `--secondary-text-color` |
+| `color_live_banner` | Hintergrund des Live-Banners | `--state-icon-active-color` |
+
+Jeder Wert akzeptiert einen beliebigen CSS-Farbwert - Hex (`#4caf50`),
+`rgb()`/`rgba()`, `hsl()`/`hsla()`, einen benannten CSS-Farbnamen, oder eine
+Theme-Variable wie `var(--accent-color)`. Ungültige bzw. nicht eindeutig als
+Farbwert erkennbare Eingaben werden verworfen (Warnung in der
+Browser-Konsole) und fallen auf die Standardfarbe zurück, statt die Karte zu
+beschädigen.
 
 ### Weiterverarbeitung (seit Version 1.0.3, optional)
 
@@ -530,9 +582,41 @@ die dortigen Maintainer den Fehler beheben.
   [Fehlerbehebung](#fehlerbehebung)) protokolliert die Integration weiterhin
   die Rohdaten jedes Anrufs (inkl. `Device` und einer ggf. gefundenen
   zugehörigen Nachricht) mitsamt berechnetem `outcome`.
+- **Kartengrenzwerte in modernen Browser-Features**: Zwei Funktionen der
+  Dashboard-Karte seit Version 1.0.4 nutzen vergleichsweise moderne
+  Web-Plattform-Features und wurden noch nicht an einer breiten Auswahl
+  echter Home-Assistant-Frontend-Versionen/Browser bestätigt: die
+  breitenabhängige Tab-Leiste (CSS Container Queries - in allen gängigen,
+  aktuellen Browsern seit 2022/2023 unterstützt) und die aufklappbaren
+  Editor-Abschnitte (`ha-form`s "expandable"-Schema-Typ mit `flatten: true`
+  - Verfügbarkeit hängt von der Home-Assistant-Frontend-Version ab). Beide
+  degradieren im Zweifel unauffällig (Tab-Leiste: Beschriftungen können statt
+  komplett auszublenden gekürzt werden, aber es entsteht kein Scrollbalken
+  mehr; Editor: Felder erscheinen ggf. als eine lange, ungruppierte statt
+  gruppierte Liste) - bitte mit Home-Assistant-Version und Browser als
+  GitHub-Issue melden, falls sich das anders verhält.
 
 ## Versionshistorie
 
+- **1.0.4b0** (Vorabversion): Konfigurierbare Farben für die wichtigsten
+  Icons/Symbole der Dashboard-Karte (neuer Editor-Bereich "Farben", sieben
+  `color_*`-Schlüssel - siehe [Farben](#farben-seit-version-104-optional)).
+  Grafischer Karten-Editor jetzt in aufklappbare Abschnitte gruppiert
+  (Sensoren/Kategorien/Darstellung/Weiterverarbeitung/Farben), auf Wunsch von
+  Thorsten, nachdem die Feldliste durch die bisherigen Erweiterungen
+  unübersichtlich geworden war. Fix für einen horizontalen Scrollbalken in
+  der Tab-Leiste, der auf einer schmalen Desktop-Dashboard-Spalte auftreten
+  konnte, seit "Eingehend" in Version 1.0.3 zum längeren "Angenommen" wurde
+  - die Tab-Leiste reagiert jetzt auf die tatsächliche Kartenbreite statt
+  nur auf die Fensterbreite. Außerdem: Fix für eine unbehandelte Ausnahme im
+  Fallback-Login-Pfad der Anrufbeantworter-Wiedergabe, die auf manchen
+  FRITZ!Box-Kontokonfigurationen zu einem rohen HTTP 500 statt einer
+  sauberen, protokollierten 502-Antwort führte - siehe
+  [Fehlerbehebung](#fehlerbehebung). Zwei der neuen Karten-Features (die
+  breitenabhängige Tab-Leiste, die aufklappbaren Editor-Abschnitte) beruhen
+  auf vergleichsweise moderner Web-Plattform-Technik und sind noch nicht an
+  einer breiten Auswahl echter Home-Assistant-Frontend-Versionen bestätigt -
+  siehe [Bekannte Einschränkungen](#bekannte-einschränkungen).
 - **1.0.3**: Größere Überarbeitung der Anrufklassifizierung, gemeinsam mit
   Thorsten anhand von Beobachtungen an seiner eigenen FRITZ!Box entwickelt.
   Eingehende Anrufe, die an den Anrufbeantworter weitergeleitet wurden
@@ -699,6 +783,25 @@ die dortigen Maintainer den Fehler beheben.
   GitHub-Issue melden (kann z. B. auch an ein durch die FRITZ!Box-
   Blockzeit nach mehreren Fehlversuchen gesperrtes Konto liegen - in dem
   Fall kurz warten und erneut versuchen).
+- **Sprachnachricht-Wiedergabe schlägt mit HTTP 500 statt einer
+  aussagekräftigen Fehlermeldung fehl** (Browser-Konsole zeigt
+  `status: 500` beim Abruf von `/api/fritzbox_anrufe/tam_media/...` bzw.
+  `/api/fritzbox_anrufe/call_media/...`): Seit Version 1.0.4 behoben - eine
+  bislang ungeschützte Stelle im Fallback-Login (der zweite von zwei Wegen,
+  eine für den Datei-Download nötige Sitzungs-ID zu ermitteln, siehe
+  [Wiedergabe der Anrufbeantworter-Nachrichten](#wiedergabe-der-anrufbeantworter-nachrichten))
+  konnte dort auftretende Fehler nicht abfangen und ließ sie unbehandelt bis
+  zum Browser durchreichen, statt sie - wie an allen anderen Stellen dieser
+  Methode - in eine saubere 502-Antwort mit WARNING-Log-Zeile umzuwandeln.
+  Auf der aktuellen Version erscheint stattdessen eine Log-Zeile
+  "Anrufbeantworter-Download: Sitzungs-ID konnte nicht ermittelt werden
+  (...)" mit dem konkreten Python-Fehlertyp und -text. Tritt der Fehler
+  weiterhin auf: Diese Log-Zeile zusammen mit der FRITZ!Box-Kontoberechtigung
+  des verwendeten Benutzerkontos (insbesondere, ob es Zugriff auf die
+  normale FRITZ!Box-Weboberfläche hat, nicht nur auf einzelne TR-064-
+  Funktionen) als GitHub-Issue melden - ein eingeschränktes, "nur für Apps"
+  freigegebenes Benutzerkonto ist ein plausibler Kandidat für einen
+  fehlschlagenden Fallback-Login.
 - **Grafischer Karten-Editor: "Max. Zeilen" lässt sich nicht auf einen
   neuen Wert ändern / springt zurück**: dafür ist ein Schieberegler statt
   eines Texteingabefelds verbaut - Home Assistant nach dem Update
