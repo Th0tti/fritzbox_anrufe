@@ -352,6 +352,11 @@ color_playback: ""
 color_vip: ""
 color_row_icon: ""
 color_live_banner: ""
+color_icon_alle: ""
+color_icon_eingehend: ""
+color_icon_ausgehend: ""
+color_icon_verpasst: ""
+color_icon_anrufbeantworter: ""
 ```
 
 **Grafischer Editor:** Statt die Karte per YAML zu konfigurieren, kann sie
@@ -365,12 +370,17 @@ ist der Editor in aufklappbare Abschnitte gruppiert (Sensoren, Kategorien,
 Darstellung, Weiterverarbeitung, Farben) - bei einer inzwischen recht langen
 Feldliste auf Wunsch von Thorsten eingeführt, um den Überblick zu behalten.
 Das ist eine rein optische Gruppierung; gespeichert wird weiterhin dieselbe
-flache YAML-Struktur wie zuvor. Voraussetzung ist ein halbwegs aktuelles
-Home-Assistant-Frontend (dieses Gruppierungsfeature war zum Zeitpunkt dieser
-Änderung noch nicht an echter Hardware bestätigt) - erscheint der Editor
-stattdessen als eine lange, ungruppierte Liste oder mit einem seltsam
-benannten Zusatzfeld, bitte als GitHub-Issue mit der Home-Assistant-Version
-melden.
+flache YAML-Struktur wie zuvor. Die ersten vier Abschnitte (Sensoren,
+Kategorien, Darstellung, Weiterverarbeitung) setzen dafür ein halbwegs
+aktuelles Home-Assistant-Frontend voraus (dieses Gruppierungsfeature war zum
+Zeitpunkt dieser Änderung noch nicht an echter Hardware bestätigt) - erscheint
+einer dieser vier Abschnitte stattdessen als eine lange, ungruppierte Liste
+oder mit einem seltsam benannten Zusatzfeld, bitte als GitHub-Issue mit der
+Home-Assistant-Version melden. Der fünfte Abschnitt, "Farben", ist davon
+**nicht** betroffen: er wird seit Version 1.0.4b1 nicht mehr über dieses
+Home-Assistant-Formularfeature gerendert, sondern mit einfachem,
+browser-eigenem HTML (siehe [Farben](#farben-seit-version-104-optional)
+unten) - unabhängig von der Home-Assistant-Frontend-Version.
 
 **Kategorien:** Fünf Schalter (`show_alle`, `show_eingehend`,
 `show_ausgehend`, `show_verpasst`, `show_anrufbeantworter`) blenden ganze
@@ -387,8 +397,8 @@ blenden einzelne Spalten der Anrufliste ein oder aus.
 
 ### Farben (seit Version 1.0.4, optional)
 
-Sieben Farbfelder passen die wichtigsten Icons/Symbole der Karte an -
-standardmäßig leer, was die bisherige, feste Theme-Farbe unverändert lässt:
+Zwölf Farbfelder passen die Icons/Symbole der Karte an - standardmäßig leer,
+was die bisherige, feste Theme-Farbe unverändert lässt:
 
 | Config-Schlüssel | Betrifft | Standardfarbe |
 | --- | --- | --- |
@@ -399,6 +409,11 @@ standardmäßig leer, was die bisherige, feste Theme-Farbe unverändert lässt:
 | `color_vip` | VIP-Stern | `--warning-color` |
 | `color_row_icon` | Anruf-Symbol in jeder Zeile | `--secondary-text-color` |
 | `color_live_banner` | Hintergrund des Live-Banners | `--state-icon-active-color` |
+| `color_icon_alle` (seit 1.0.4b1) | Symbol des Tabs "Alle" | folgt der Tab-Farbe (aktiv/inaktiv) |
+| `color_icon_eingehend` (seit 1.0.4b1) | Symbol des Tabs "Angenommen" | folgt der Tab-Farbe (aktiv/inaktiv) |
+| `color_icon_ausgehend` (seit 1.0.4b1) | Symbol des Tabs "Ausgehend" | folgt der Tab-Farbe (aktiv/inaktiv) |
+| `color_icon_verpasst` (seit 1.0.4b1) | Symbol des Tabs "Verpasst" | folgt der Tab-Farbe (aktiv/inaktiv) |
+| `color_icon_anrufbeantworter` (seit 1.0.4b1) | Symbol des Tabs "Anrufbeantworter" | folgt der Tab-Farbe (aktiv/inaktiv) |
 
 Jeder Wert akzeptiert einen beliebigen CSS-Farbwert - Hex (`#4caf50`),
 `rgb()`/`rgba()`, `hsl()`/`hsla()`, einen benannten CSS-Farbnamen, oder eine
@@ -406,6 +421,31 @@ Theme-Variable wie `var(--accent-color)`. Ungültige bzw. nicht eindeutig als
 Farbwert erkennbare Eingaben werden verworfen (Warnung in der
 Browser-Konsole) und fallen auf die Standardfarbe zurück, statt die Karte zu
 beschädigen.
+
+Die 5 Kategorie-Icon-Farben (`color_icon_*`) sind unabhängig vom Tab-Status:
+einmal gesetzt, behält das Symbol diese Farbe sowohl im aktiven als auch im
+inaktiven Zustand des Tabs - anders als `color_tab_active`, das nur den
+aktiven Tab betrifft.
+
+**Grafische Farbauswahl (seit Version 1.0.4b1):** Im grafischen Editor
+("Karte bearbeiten" → Abschnitt "Farben") steht neben jedem Textfeld
+zusätzlich ein Farbfeld (`<input type="color">`) - ein Klick darauf öffnet
+die native Farbauswahl des Betriebssystems/Browsers. Eine dort gewählte
+Farbe wird automatisch als Hex-Wert in das danebenliegende Textfeld
+übernommen; umgekehrt lässt sich das Textfeld weiterhin frei mit jedem
+CSS-Farbwert befüllen (also auch mit Werten, die die grafische Auswahl nicht
+abbilden kann, z. B. `var(--accent-color)` oder `rgb(...)`) - das Farbfeld
+zeigt in diesem Fall ersatzweise die Standardfarbe an, das Textfeld bleibt
+maßgeblich. Unter jedem Feld steht außerdem, welche Farbe aktuell wirksam
+ist ("Aktuell verwendet: …" bzw. bei leerem Feld "Aktuell verwendet
+(Standard): …") - so ist auch ohne Blick in die YAML-Konfiguration
+ersichtlich, welche Farbe eine Karte gerade tatsächlich verwendet. Diese
+Sektion ist bewusst nicht über das Home-Assistant-Formularfeature
+(`<ha-form>`) umgesetzt, sondern mit einfachem, browser-eigenem HTML -
+sowohl weil `<ha-form>` keinen Feldtyp anbietet, der gleichzeitig beliebige
+CSS-Werte, eine grafische Auswahl und die aktuell wirksame Farbe anzeigen
+kann, als auch damit diese Sektion unabhängig von der
+Home-Assistant-Frontend-Version zuverlässig funktioniert.
 
 ### Weiterverarbeitung (seit Version 1.0.3, optional)
 
@@ -588,16 +628,40 @@ die dortigen Maintainer den Fehler beheben.
   echter Home-Assistant-Frontend-Versionen/Browser bestätigt: die
   breitenabhängige Tab-Leiste (CSS Container Queries - in allen gängigen,
   aktuellen Browsern seit 2022/2023 unterstützt) und die aufklappbaren
-  Editor-Abschnitte (`ha-form`s "expandable"-Schema-Typ mit `flatten: true`
-  - Verfügbarkeit hängt von der Home-Assistant-Frontend-Version ab). Beide
-  degradieren im Zweifel unauffällig (Tab-Leiste: Beschriftungen können statt
-  komplett auszublenden gekürzt werden, aber es entsteht kein Scrollbalken
-  mehr; Editor: Felder erscheinen ggf. als eine lange, ungruppierte statt
+  Editor-Abschnitte für Sensoren/Kategorien/Darstellung/Weiterverarbeitung
+  (`ha-form`s "expandable"-Schema-Typ mit `flatten: true` - Verfügbarkeit
+  hängt von der Home-Assistant-Frontend-Version ab). Beide degradieren im
+  Zweifel unauffällig (Tab-Leiste: Beschriftungen können statt komplett
+  auszublenden gekürzt werden, aber es entsteht kein Scrollbalken mehr;
+  Editor: Felder erscheinen ggf. als eine lange, ungruppierte statt
   gruppierte Liste) - bitte mit Home-Assistant-Version und Browser als
-  GitHub-Issue melden, falls sich das anders verhält.
+  GitHub-Issue melden, falls sich das anders verhält. Der fünfte
+  Editor-Abschnitt, "Farben", ist von dieser Einschränkung seit Version
+  1.0.4b1 **nicht** mehr betroffen: er verwendet statt `ha-form` einfaches,
+  browser-eigenes HTML (`<details>`, `<input type="color">`), das seit
+  Langem in praktisch jedem Browser gleich funktioniert.
 
 ## Versionshistorie
 
+- **1.0.4b1** (Vorabversion): Drei Verbesserungen an der in 1.0.4b0
+  eingeführten Farbkonfiguration, auf Wunsch von Thorsten nach dem ersten
+  Test. Erstens: jedes Farbfeld im Editor zeigt jetzt zusätzlich an, welche
+  Farbe gerade tatsächlich wirkt ("Aktuell verwendet: …" bzw. bei leerem
+  Feld "Aktuell verwendet (Standard): …"), statt nur ein leeres Textfeld zu
+  zeigen. Zweitens: eine grafische Farbauswahl (`<input type="color">`)
+  neben jedem Textfeld - ein Klick öffnet den nativen Farbwähler des
+  Betriebssystems/Browsers, gewählte Farben landen automatisch im
+  Textfeld; freie CSS-Werte (`var(...)`, `rgb(...)`, Farbnamen) bleiben über
+  das Textfeld weiterhin möglich. Drittens: 5 neue Farbfelder für die
+  Kategorie-Tab-Icons (Alle/Angenommen/Ausgehend/Verpasst/Anrufbeantworter),
+  einzeln und unabhängig vom Tab-Status einstellbar (`color_icon_*` -
+  siehe [Farben](#farben-seit-version-104-optional)). Dafür wurde der
+  Editor-Abschnitt "Farben" technisch komplett umgebaut: er läuft nicht mehr
+  über `ha-form` wie die anderen vier Abschnitte, sondern über einfaches,
+  browser-eigenes HTML - das ermöglichte die grafische Auswahl und den
+  aktuellen-Wert-Hinweis überhaupt erst, und macht diesen einen Abschnitt
+  nebenbei unabhängig von der Home-Assistant-Frontend-Version (siehe
+  [Bekannte Einschränkungen](#bekannte-einschränkungen)).
 - **1.0.4b0** (Vorabversion): Konfigurierbare Farben für die wichtigsten
   Icons/Symbole der Dashboard-Karte (neuer Editor-Bereich "Farben", sieben
   `color_*`-Schlüssel - siehe [Farben](#farben-seit-version-104-optional)).
