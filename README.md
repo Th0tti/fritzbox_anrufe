@@ -439,7 +439,7 @@ was die bisherige, feste Theme-Farbe unverändert lässt:
 | `color_error` | Weiterverarbeitung "Nicht verbunden"/"Nicht erreicht"/"Keine Anrufbeantworter-Nachricht vorhanden" | `--error-color` |
 | `color_playback` | Abspielen-Button, "Neu"-Markierung, Weiterverarbeitung "Anrufbeantworter-Nachricht abspielen" | `--primary-color` |
 | `color_vip` | VIP-Stern | `--warning-color` |
-| `color_row_icon` | Anruf-Symbol in jeder Zeile | `--secondary-text-color` |
+| `color_row_icon` | Anruf-Symbol in jeder Zeile - EINE Farbe für ALLE Zeilen, überschreibt bei Bedarf die Kategorie-Icon-Farben unten | `--secondary-text-color` |
 | `color_live_banner` | Hintergrund des Live-Banners | `--state-icon-active-color` |
 | `color_icon_alle` (seit 1.0.4b1) | Symbol des Tabs "Alle" | folgt der Tab-Farbe (aktiv/inaktiv) |
 | `color_icon_eingehend` (seit 1.0.4b1) | Symbol des Tabs "Angenommen" | folgt der Tab-Farbe (aktiv/inaktiv) |
@@ -458,6 +458,16 @@ Die 5 Kategorie-Icon-Farben (`color_icon_*`) sind unabhängig vom Tab-Status:
 einmal gesetzt, behält das Symbol diese Farbe sowohl im aktiven als auch im
 inaktiven Zustand des Tabs - anders als `color_tab_active`, das nur den
 aktiven Tab betrifft.
+
+**Kategorie-Farbe wirkt jetzt auch in der Anrufliste (seit Version 1.0.4):**
+Wird die Icon-Farbe einer Kategorie geändert (z. B. `color_icon_ausgehend`),
+färbt sich damit nicht mehr nur das Symbol im Tab, sondern auch das
+Zeilen-Icon jedes Anrufs dieser Kategorie in der Liste - auf der
+"Alle"/"Gesamt"-Sammelansicht entsprechend gemischt, jede Zeile in der Farbe
+ihrer eigenen Kategorie. **Einzige Ausnahme:** Ist `color_row_icon` gesetzt
+(eine Farbe für ALLE Zeilen-Icons, siehe Tabelle oben), gewinnt diese
+einheitliche Einstellung - Kategorie-Icon-Farben wirken dann ausschließlich
+noch auf die Tab-Symbole selbst, nicht mehr auf die Zeilen darunter.
 
 **Grafische Farbauswahl (seit Version 1.0.4b1):** Im grafischen Editor
 ("Karte bearbeiten" → Abschnitt "Farben") steht neben jedem Textfeld
@@ -684,7 +694,16 @@ die dortigen Maintainer den Fehler beheben.
   Editor-Abschnitt, "Farben", ist von dieser Einschränkung seit Version
   1.0.4b1 **nicht** mehr betroffen: er verwendet statt `ha-form` einfaches,
   browser-eigenes HTML (`<details>`, `<input type="color">`), das seit
-  Langem in praktisch jedem Browser gleich funktioniert.
+  Langem in praktisch jedem Browser gleich funktioniert. Dessen
+  Icon-Größe/Schriftgröße wurde in Version 1.0.4 noch einmal geprüft und an
+  die von `ha-form` für die anderen vier Abschnitte verwendeten
+  Standardwerte (24px Icon-Größe, 16px Schriftgröße, `--primary-text-color`)
+  angeglichen - verifiziert per automatisiertem Test gegen die tatsächlich
+  gerenderte DOM (`getComputedStyle()`), mangels Zugriff auf eine echte
+  Home-Assistant-Installation in dieser Entwicklungsumgebung aber ebenfalls
+  noch nicht an echter Hardware/Companion App gegengeprüft - bitte mit
+  Screenshot melden, falls die fünf Abschnittsüberschriften optisch
+  weiterhin unterschiedlich groß wirken.
 - **Filter-/Sortierleiste - keine "Eigene Rufnummer" bei Anrufbeantworter-
   Nachrichten** (seit Version 1.0.4b3): Die FRITZ!Box-TAM-Nachrichtenliste
   (TR-064-Aktion `GetMessageList`, `fritzconnection`-Modell `TamMessage`)
@@ -699,70 +718,42 @@ die dortigen Maintainer den Fehler beheben.
 
 ## Versionshistorie
 
-- **1.0.4b3** (Vorabversion): Zwei weitere Nachbesserungen von Thorsten.
-  Erstens: der Editor-Akkordeon-Abschnitt "Farben" verwendete für sein
-  Chevron-Symbol und das führende Icon eine kleinere `--mdc-icon-size`
-  (20px) als die anderen vier von `<ha-form>` gerenderten Abschnitte
-  (24px, der Standardwert von `ha-icon`/MDC) - jetzt vereinheitlicht auf
-  24px, zusätzlich eine explizite Schriftgröße (16px) für die
-  Abschnitts-Überschrift, damit sie nicht mehr kleiner wirkt als die
-  anderen vier. Zweitens: eine optionale Filter-/Sortierleiste auf der
-  Karte selbst (`show_filter_bar`, standardmäßig aus) - ein Dropdown zum
-  Filtern nach eigener Rufnummer (nur Anrufliste, siehe
-  [Bekannte Einschränkungen](#bekannte-einschränkungen) zur
-  Anrufbeantworter-Ausnahme) sowie ein Dropdown zum Sortieren nach
-  Datum/Dauer/Name, siehe
+- **1.0.4**: Individuelle farbliche Gestaltung der Dashboard-Karte über den
+  grafischen Editor (neuer Bereich "Farben", zwölf `color_*`-Schlüssel für
+  Tab-Farbe, VIP-Stern, Zeilen-Icons, Live-Banner, Weiterverarbeitungs-Icons
+  sowie je eine eigene Farbe pro Kategorie-Tab-Icon - siehe
+  [Farben](#farben-seit-version-104-optional)) mit grafischer Farbauswahl
+  (`<input type="color">`), Anzeige des aktuell wirksamen Werts je Feld und
+  einem "Alle Farben zurücksetzen"-Button. **Eine an einer Kategorie
+  eingestellte Icon-Farbe färbt jetzt auch die Zeilen-Icons dieser Kategorie
+  in der Anrufliste ein**, nicht mehr nur das Tab-Symbol - einzige Ausnahme:
+  ist `color_row_icon` (eine Farbe für ALLE Zeilen-Icons) gesetzt, gewinnt
+  diese einheitliche Einstellung. Grafischer Karten-Editor jetzt in fünf
+  aufklappbare Abschnitte gruppiert (Sensoren/Kategorien/Darstellung/
+  Weiterverarbeitung/Farben); alle fünf Akkordeon-Köpfe verwenden dieselbe
+  Icon-Größe (24px) und Schriftgröße (16px), nachdem der zuletzt eigens
+  gebaute "Farben"-Abschnitt anfangs kleiner wirkte als die anderen vier -
+  siehe [Bekannte Einschränkungen](#bekannte-einschränkungen) zur
+  verbleibenden Unsicherheit ohne echte Hardware/Companion-App-Bestätigung.
+  Optionale Filter-/Sortierleiste direkt auf der Karte (`show_filter_bar`,
+  standardmäßig aus): nach eigener Rufnummer filtern (nur Anrufliste, nicht
+  Anrufbeantworter) und nach Datum/Dauer/Name sortieren - siehe
   [Filter-/Sortierleiste](#filter-sortierleiste-seit-version-104b3-optional).
-- **1.0.4b2** (Vorabversion): Zwei kleine Nachbesserungen aus Thorstens
-  erstem Praxistest von 1.0.4b1 an echter Hardware (Companion App). Erstens:
-  dem Akkordeon-Abschnitt "Farben" fehlte das Auf-/Zuklapp-Dreieck (Chevron),
-  das die anderen vier Abschnitte zeigen - die native
-  `<summary>`-Standardmarkierung wurde in der Companion App gar nicht
-  angezeigt; die Sektion rendert jetzt ein eigenes, sich beim Auf-/Zuklappen
-  drehendes Chevron-Symbol, unabhängig vom Browser/WebView-Standardverhalten.
-  Zweitens: ein "Alle Farben zurücksetzen"-Button (siehe
-  [Farben](#farben-seit-version-104-optional)). Außerdem README-Klarstellung,
-  dass Farbwerte wie jede andere Karteneinstellung über Home Assistants
-  eigene Dashboard-Speicherung persistiert werden und einen Neustart
-  zuverlässig überstehen.
-- **1.0.4b1** (Vorabversion): Drei Verbesserungen an der in 1.0.4b0
-  eingeführten Farbkonfiguration, auf Wunsch von Thorsten nach dem ersten
-  Test. Erstens: jedes Farbfeld im Editor zeigt jetzt zusätzlich an, welche
-  Farbe gerade tatsächlich wirkt ("Aktuell verwendet: …" bzw. bei leerem
-  Feld "Aktuell verwendet (Standard): …"), statt nur ein leeres Textfeld zu
-  zeigen. Zweitens: eine grafische Farbauswahl (`<input type="color">`)
-  neben jedem Textfeld - ein Klick öffnet den nativen Farbwähler des
-  Betriebssystems/Browsers, gewählte Farben landen automatisch im
-  Textfeld; freie CSS-Werte (`var(...)`, `rgb(...)`, Farbnamen) bleiben über
-  das Textfeld weiterhin möglich. Drittens: 5 neue Farbfelder für die
-  Kategorie-Tab-Icons (Alle/Angenommen/Ausgehend/Verpasst/Anrufbeantworter),
-  einzeln und unabhängig vom Tab-Status einstellbar (`color_icon_*` -
-  siehe [Farben](#farben-seit-version-104-optional)). Dafür wurde der
-  Editor-Abschnitt "Farben" technisch komplett umgebaut: er läuft nicht mehr
-  über `ha-form` wie die anderen vier Abschnitte, sondern über einfaches,
-  browser-eigenes HTML - das ermöglichte die grafische Auswahl und den
-  aktuellen-Wert-Hinweis überhaupt erst, und macht diesen einen Abschnitt
-  nebenbei unabhängig von der Home-Assistant-Frontend-Version (siehe
-  [Bekannte Einschränkungen](#bekannte-einschränkungen)).
-- **1.0.4b0** (Vorabversion): Konfigurierbare Farben für die wichtigsten
-  Icons/Symbole der Dashboard-Karte (neuer Editor-Bereich "Farben", sieben
-  `color_*`-Schlüssel - siehe [Farben](#farben-seit-version-104-optional)).
-  Grafischer Karten-Editor jetzt in aufklappbare Abschnitte gruppiert
-  (Sensoren/Kategorien/Darstellung/Weiterverarbeitung/Farben), auf Wunsch von
-  Thorsten, nachdem die Feldliste durch die bisherigen Erweiterungen
-  unübersichtlich geworden war. Fix für einen horizontalen Scrollbalken in
-  der Tab-Leiste, der auf einer schmalen Desktop-Dashboard-Spalte auftreten
-  konnte, seit "Eingehend" in Version 1.0.3 zum längeren "Angenommen" wurde
-  - die Tab-Leiste reagiert jetzt auf die tatsächliche Kartenbreite statt
-  nur auf die Fensterbreite. Außerdem: Fix für eine unbehandelte Ausnahme im
-  Fallback-Login-Pfad der Anrufbeantworter-Wiedergabe, die auf manchen
-  FRITZ!Box-Kontokonfigurationen zu einem rohen HTTP 500 statt einer
-  sauberen, protokollierten 502-Antwort führte - siehe
-  [Fehlerbehebung](#fehlerbehebung). Zwei der neuen Karten-Features (die
-  breitenabhängige Tab-Leiste, die aufklappbaren Editor-Abschnitte) beruhen
-  auf vergleichsweise moderner Web-Plattform-Technik und sind noch nicht an
-  einer breiten Auswahl echter Home-Assistant-Frontend-Versionen bestätigt -
-  siehe [Bekannte Einschränkungen](#bekannte-einschränkungen).
+  Fix für einen horizontalen Scrollbalken in der Tab-Leiste, der auf einer
+  schmalen Desktop-Dashboard-Spalte auftreten konnte, seit "Eingehend" in
+  Version 1.0.3 zum längeren "Angenommen" wurde - die Tab-Leiste reagiert
+  jetzt auf die tatsächliche Kartenbreite statt nur auf die Fensterbreite.
+  Fix für eine unbehandelte Ausnahme im Fallback-Login-Pfad der
+  Anrufbeantworter-Wiedergabe, die auf manchen FRITZ!Box-Kontokonfigurationen
+  zu einem rohen HTTP 500 statt einer sauberen, protokollierten 502-Antwort
+  führte - siehe [Fehlerbehebung](#fehlerbehebung). Einige Features dieser
+  Version (die breitenabhängige Tab-Leiste, die aufklappbaren
+  Sensoren/Kategorien/Darstellung/Weiterverarbeitung-Editor-Abschnitte)
+  beruhen auf vergleichsweise moderner Web-Plattform-Technik und sind noch
+  nicht an einer breiten Auswahl echter Home-Assistant-Frontend-Versionen
+  bestätigt - siehe [Bekannte Einschränkungen](#bekannte-einschränkungen).
+  Über den 1.0.4-Vorabversionen-Zyklus (1.0.4b0-b3) hinweg schrittweise mit
+  Thorsten anhand seiner eigenen Praxistests entwickelt und verfeinert.
 - **1.0.3**: Größere Überarbeitung der Anrufklassifizierung, gemeinsam mit
   Thorsten anhand von Beobachtungen an seiner eigenen FRITZ!Box entwickelt.
   Eingehende Anrufe, die an den Anrufbeantworter weitergeleitet wurden

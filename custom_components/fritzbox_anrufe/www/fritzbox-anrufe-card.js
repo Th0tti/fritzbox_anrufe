@@ -97,6 +97,17 @@
  * once the bar is enabled, so there is no behavior change for anyone who
  * doesn't opt in.
  *
+ * v1.0.4 (final): a configured category-tab icon color (`color_icon_*`)
+ * now also colors that category's row icons in the call list, not just the
+ * tab itself - per Thorsten: "Wird die Farbe des Symbols in der Kategorie
+ * geändert, soll sich auch das Symbol in der Liste in dieser Farbe ändern."
+ * See `FritzboxAnrufeCard._rowIconColor()`. The single exception is
+ * `color_row_icon` (one uniform color for every row icon, in the "Farben"
+ * editor section) - if set, it wins over any per-category color, exactly
+ * as Thorsten specified. Also: the "Farben" editor section's chevron/font
+ * size was re-verified once more for consistency with the other 4
+ * accordion groups (see the v1.0.4b3 paragraph above for the original fix).
+ *
  * Playback: the FRITZ!Box audio recording is served by this integration's
  * own authenticated proxy endpoint (see http.py), which requires a valid
  * Home Assistant session - a plain <audio src="..."> cannot supply that
@@ -358,6 +369,14 @@ const PROCESSING_COLOR_VARS = {
 // statt über eine gemeinsame Property. Leer/ungesetzt = kein Inline-Style,
 // d.h. das Icon folgt weiterhin wie bisher der Tab-Farbe (color_tab_active
 // bei aktivem Tab, sonst die sekundäre Textfarbe).
+//
+// Seit v1.0.4 (final) gilt dieselbe Farbe auch für das Zeilen-Icon jedes
+// Anrufs der jeweiligen Kategorie in der Liste (siehe
+// FritzboxAnrufeCard._rowIconColor()/_renderRows()) - ändert man z. B. die
+// Icon-Farbe von "Ausgehend", färben sich sowohl das Tab-Icon als auch alle
+// Zeilen-Icons ausgehender Anrufe. Einzige Ausnahme: ist `color_row_icon`
+// gesetzt (EINE Farbe für ALLE Zeilen-Icons, siehe COLOR_CONFIG_KEYS oben),
+// gewinnt diese einheitliche Einstellung - per Thorstens Vorgabe.
 const CATEGORY_ICON_COLOR_KEYS = {
   alle: "color_icon_alle",
   eingehend: "color_icon_eingehend",
@@ -904,6 +923,25 @@ class FritzboxAnrufeCard extends HTMLElement {
     return (FILTER_META[type] && FILTER_META[type].icon) || "mdi:phone";
   }
 
+  // Farbe des Zeilen-Icons (seit v1.0.4) - seit v1.0.4 (final) folgt es der
+  // pro-Kategorie konfigurierten Tab-Icon-Farbe (color_icon_eingehend/
+  // _ausgehend/_verpasst - dieselben Schlüssel wie das jeweilige Tab-Icon in
+  // _renderTabs()), damit eine an einer Kategorie geänderte Symbolfarbe
+  // sichtbar auch bei den zugehörigen Zeilen in der Liste ankommt - genau
+  // wie beim Tab selbst ist das unabhängig vom Tab-Status (aktiv/inaktiv).
+  // EINZIGE AUSNAHME (per Thorsten): ist `color_row_icon` gesetzt - die
+  // Einstellung, die EINE Farbe für ALLE Zeilen-Icons zuweist -, gewinnt
+  // diese einheitliche Farbe. Sie wird hier bewusst NICHT zurückgegeben
+  // (leerer String = kein Inline-Style), weil sie bereits als CSS-Variable
+  // (--fba-color-row-icon, siehe _colorVars()/.row-icon) für JEDES
+  // Zeilen-Icon gilt - ein Inline-Style hier wäre nur eine Dopplung.
+  _rowIconColor(callType) {
+    const cfg = this._config || {};
+    if (sanitizeColor(cfg.color_row_icon)) return "";
+    const iconColorKey = CATEGORY_ICON_COLOR_KEYS[callType];
+    return iconColorKey ? sanitizeColor(cfg[iconColorKey]) : "";
+  }
+
   // Ob die "Weiterverarbeitung"-Zeile für einen Anruf des gegebenen
   // Anruflisten-Typs gezeigt werden soll. Auf der "Alle"-Sammelansicht
   // entscheidet ausschließlich show_processing_alle (Punkt 6) - unabhängig
@@ -1018,10 +1056,12 @@ class FritzboxAnrufeCard extends HTMLElement {
     return `
       <div class="rows">
         ${calls
-          .map(
-            (call) => `
+          .map((call) => {
+            const rowIconColor = this._rowIconColor(call.type);
+            const rowIconStyle = rowIconColor ? ` style="color: ${rowIconColor};"` : "";
+            return `
           <div class="row">
-            <ha-icon class="row-icon" icon="${this._typeIcon(call.type)}"></ha-icon>
+            <ha-icon class="row-icon" icon="${this._typeIcon(call.type)}"${rowIconStyle}></ha-icon>
             <div class="row-main">
               <div class="row-primary">
                 ${cfg.show_name ? `<span class="row-name">${escapeHtml(call.name || call.number || "Unbekannt")}</span>` : ""}
@@ -1039,8 +1079,8 @@ class FritzboxAnrufeCard extends HTMLElement {
             </div>
           </div>
           ${this._renderProcessingRow(call)}
-        `
-          )
+        `;
+          })
           .join("")}
       </div>
     `;
