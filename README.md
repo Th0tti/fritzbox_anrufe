@@ -447,6 +447,19 @@ CSS-Werte, eine grafische Auswahl und die aktuell wirksame Farbe anzeigen
 kann, als auch damit diese Sektion unabhängig von der
 Home-Assistant-Frontend-Version zuverlässig funktioniert.
 
+**Zurücksetzen (seit Version 1.0.4b2):** Der Button "Alle Farben
+zurücksetzen" oben im Abschnitt leert alle zwölf Farbfelder auf einen Schlag
+(zurück zur jeweiligen Standardfarbe) - praktischer als jedes Feld einzeln zu
+leeren.
+
+**Bleiben die Farben nach einem Neustart erhalten?** Ja. Farbwerte sind ganz
+normale Einstellungen der Lovelace-Kartenkonfiguration und werden von Home
+Assistants eigener Dashboard-Speicherung verwaltet - genau wie Titel,
+Sensor-Zuordnung oder die `show_*`-Schalter dieser Karte. Diese Integration
+hat darauf keinen eigenen Einfluss und keinen Grund, sie jemals
+zurückzusetzen; sie überstehen einen Neustart von Home Assistant oder ein
+Update der Integration ebenso zuverlässig wie jede andere Karteneinstellung.
+
 ### Weiterverarbeitung (seit Version 1.0.3, optional)
 
 Vier weitere Schalter (`show_processing_eingehend`, `show_processing_ausgehend`,
@@ -643,6 +656,18 @@ die dortigen Maintainer den Fehler beheben.
 
 ## Versionshistorie
 
+- **1.0.4b2** (Vorabversion): Zwei kleine Nachbesserungen aus Thorstens
+  erstem Praxistest von 1.0.4b1 an echter Hardware (Companion App). Erstens:
+  dem Akkordeon-Abschnitt "Farben" fehlte das Auf-/Zuklapp-Dreieck (Chevron),
+  das die anderen vier Abschnitte zeigen - die native
+  `<summary>`-Standardmarkierung wurde in der Companion App gar nicht
+  angezeigt; die Sektion rendert jetzt ein eigenes, sich beim Auf-/Zuklappen
+  drehendes Chevron-Symbol, unabhängig vom Browser/WebView-Standardverhalten.
+  Zweitens: ein "Alle Farben zurücksetzen"-Button (siehe
+  [Farben](#farben-seit-version-104-optional)). Außerdem README-Klarstellung,
+  dass Farbwerte wie jede andere Karteneinstellung über Home Assistants
+  eigene Dashboard-Speicherung persistiert werden und einen Neustart
+  zuverlässig überstehen.
 - **1.0.4b1** (Vorabversion): Drei Verbesserungen an der in 1.0.4b0
   eingeführten Farbkonfiguration, auf Wunsch von Thorsten nach dem ersten
   Test. Erstens: jedes Farbfeld im Editor zeigt jetzt zusätzlich an, welche

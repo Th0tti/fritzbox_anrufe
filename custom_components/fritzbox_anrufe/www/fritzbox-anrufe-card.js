@@ -60,6 +60,21 @@
  * caveat as the other 4 accordion groups (native <details>/<input>, not an
  * HA-specific component).
  *
+ * v1.0.4b2: two small follow-ups from Thorsten's first real-hardware test of
+ * the above. (1) The native <summary> disclosure marker rendered
+ * inconsistently/invisibly in the Companion App, unlike the chevron-down
+ * <ha-form> shows for its own 4 accordion groups - the "Farben" section now
+ * renders its own explicit chevron icon (rotates on open/close via CSS) so
+ * it looks the same as the other 4 groups regardless of browser/WebView
+ * default marker behavior. (2) An "Alle Farben zurücksetzen" button clears
+ * all 12 color_* keys back to "" (= the previous fixed theme colors) in one
+ * step - see FritzboxAnrufeCardEditor._resetAllColors(). Note on
+ * persistence: color values are ordinary Lovelace card config, stored by
+ * Home Assistant's own dashboard storage exactly like every other setting
+ * on this card (title, entities, show_* toggles, ...) - nothing in this
+ * integration/card can reset them on its own, including across a Home
+ * Assistant restart.
+ *
  * Playback: the FRITZ!Box audio recording is served by this integration's
  * own authenticated proxy endpoint (see http.py), which requires a valid
  * Home Assistant session - a plain <audio src="..."> cannot supply that
@@ -1335,10 +1350,30 @@ const COLOR_EDITOR_STYLES = `
     cursor: pointer;
     font-weight: 500;
     color: var(--primary-text-color, #212121);
+    /* Hide the browser's own <summary> disclosure marker - we render our own
+       chevron icon instead (see .fba-color-editor-chevron below), so it can
+       be positioned/rotated identically across browsers/WebViews. Without
+       this, some engines show no marker at all (observed in the Companion
+       App), others show one on the left in a different style than the
+       chevron-down icon <ha-form>'s own expandable groups use on the right -
+       either way it looked inconsistent/missing next to the other 4
+       accordion sections. */
+    list-style: none;
   }
-  .fba-color-editor summary ha-icon {
+  .fba-color-editor summary::-webkit-details-marker { display: none; }
+  .fba-color-editor summary::marker { display: none; }
+  .fba-color-editor summary > ha-icon:first-child {
     --mdc-icon-size: 20px;
     color: var(--secondary-text-color, #727272);
+  }
+  .fba-color-editor-chevron {
+    margin-left: auto;
+    --mdc-icon-size: 20px;
+    color: var(--secondary-text-color, #727272);
+    transition: transform 0.2s ease;
+  }
+  .fba-color-editor[open] > summary .fba-color-editor-chevron {
+    transform: rotate(180deg);
   }
   .fba-color-editor-body {
     padding: 4px 0 12px;
@@ -1346,6 +1381,22 @@ const COLOR_EDITOR_STYLES = `
     flex-direction: column;
     gap: 12px;
   }
+  .fba-color-reset-row { display: flex; justify-content: flex-end; }
+  .fba-color-reset-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--divider-color, #e0e0e0);
+    border-radius: 6px;
+    padding: 6px 10px;
+    background: none;
+    color: var(--primary-text-color, #212121);
+    font: inherit;
+    font-size: 0.85em;
+    cursor: pointer;
+  }
+  .fba-color-reset-button:hover { background: var(--secondary-background-color, rgba(0, 0, 0, 0.04)); }
+  .fba-color-reset-button ha-icon { --mdc-icon-size: 16px; }
   .fba-color-row { display: flex; flex-direction: column; gap: 4px; }
   .fba-color-row-label { font-size: 0.9em; color: var(--primary-text-color, #212121); }
   .fba-color-row-controls { display: flex; align-items: center; gap: 8px; }
@@ -1458,12 +1509,25 @@ class FritzboxAnrufeCardEditor extends HTMLElement {
     details.appendChild(style);
 
     const summary = document.createElement("summary");
-    summary.innerHTML = `<ha-icon icon="mdi:palette-outline"></ha-icon><span>Farben</span>`;
+    summary.innerHTML =
+      `<ha-icon icon="mdi:palette-outline"></ha-icon><span>Farben</span>` +
+      `<ha-icon class="fba-color-editor-chevron" icon="mdi:chevron-down"></ha-icon>`;
     details.appendChild(summary);
 
     const body = document.createElement("div");
     body.className = "fba-color-editor-body";
     details.appendChild(body);
+
+    const resetRow = document.createElement("div");
+    resetRow.className = "fba-color-reset-row";
+    resetRow.innerHTML =
+      `<button type="button" class="fba-color-reset-button">` +
+      `<ha-icon icon="mdi:restore"></ha-icon><span>Alle Farben zurücksetzen</span>` +
+      `</button>`;
+    resetRow.querySelector(".fba-color-reset-button").addEventListener("click", () =>
+      this._resetAllColors()
+    );
+    body.appendChild(resetRow);
 
     this._colorInputs = {};
     this._focusedColorKey = null;
@@ -1517,6 +1581,31 @@ class FritzboxAnrufeCardEditor extends HTMLElement {
 
   _onColorFieldChange(key, rawValue) {
     this._config = { ...this._config, [key]: rawValue };
+    this._updateColorSection();
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config: this._config },
+        bubbles: true,
+        composed: true,
+      })
+    );
+  }
+
+  // "Alle Farben zurücksetzen" (seit v1.0.4b2) - leert alle 12 color_*-
+  // Schlüssel in einem Zug (= zurück zum bisherigen, festen
+  // Theme-Farbverhalten), statt jedes der 12 Felder einzeln leeren zu
+  // müssen. Löscht bewusst den Fokus-Schutz für diese eine Aktion (siehe
+  // _updateColorSection()) - ein expliziter Zurücksetzen-Klick soll IMMER
+  // greifen, auch falls der Nutzer gerade in einem der Textfelder tippt.
+  // Ein einziges config-changed-Event mit allen 12 geänderten Werten, nicht
+  // 12 einzelne.
+  _resetAllColors() {
+    const cleared = {};
+    COLOR_EDITOR_FIELDS.forEach((field) => {
+      cleared[field.key] = "";
+    });
+    this._config = { ...this._config, ...cleared };
+    this._focusedColorKey = null;
     this._updateColorSection();
     this.dispatchEvent(
       new CustomEvent("config-changed", {
