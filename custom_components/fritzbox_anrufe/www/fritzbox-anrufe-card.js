@@ -75,6 +75,28 @@
  * integration/card can reset them on its own, including across a Home
  * Assistant restart.
  *
+ * v1.0.4b3: two further additions from Thorsten. (1) The "Farben" editor
+ * section's summary icon/chevron used a smaller --mdc-icon-size (20px) than
+ * <ha-form>'s own expandable groups render for their leading icon/chevron
+ * (24px, the standard ha-icon/MDC default) - now matched to 24px so all 5
+ * accordion headers in the editor look the same size, not just "similar".
+ * (2) An optional filter/sort bar (`show_filter_bar`, off by default so
+ * existing dashboards stay visually unchanged - same reasoning as
+ * show_processing_*) can now be shown above the call list: a "Eigene
+ * Rufnummer"/own-number dropdown (populated from the distinct own_number
+ * values actually present across the enabled call categories; not shown on
+ * the Anrufbeantworter tab, since TAM messages carry no own-number field at
+ * all - a FRITZ!Box/fritzconnection limitation, not something this card can
+ * work around) plus a sort dropdown (Datum/Dauer/Name, each
+ * auf-/absteigend) that applies to every tab including Anrufbeantworter.
+ * Both selections are pure client-side UI state (not persisted to the card
+ * config) - they reset on reload/on any config change, same as the active
+ * tab already did. When `show_filter_bar` is off (the default), calls
+ * render in exactly the same order as before this version - the new sort
+ * logic in `_visibleCalls()`/`_renderVoicemailRows()` is only reached at all
+ * once the bar is enabled, so there is no behavior change for anyone who
+ * doesn't opt in.
+ *
  * Playback: the FRITZ!Box audio recording is served by this integration's
  * own authenticated proxy endpoint (see http.py), which requires a valid
  * Home Assistant session - a plain <audio src="..."> cannot supply that
@@ -132,6 +154,7 @@
  *   show_processing_eingehend: false
  *   show_processing_ausgehend: false
  *   show_processing_verpasst: false
+ *   show_filter_bar: false
  *   color_tab_active: ""
  *   color_success: ""
  *   color_error: ""
@@ -161,6 +184,71 @@ const FILTER_META = {
   verpasst: { icon: "mdi:phone-missed", label: "Verpasst" },
   anrufbeantworter: { icon: "mdi:voicemail", label: "Anrufbeantworter" },
 };
+
+// --- Filter-/Sortierleiste (seit v1.0.4b3, optional über show_filter_bar) --
+//
+// "Eigene Rufnummer" filtert die Anrufliste (nicht Anrufbeantworter, siehe
+// unten) auf einen bestimmten own_number-Wert; die Optionen dafür werden
+// dynamisch aus den tatsächlich geladenen Anrufen ermittelt (siehe
+// FritzboxAnrufeCard._availableOwnNumbers()), nicht hier fest hinterlegt.
+const DEFAULT_SORT = "date_desc";
+
+const SORT_OPTIONS = [
+  { value: "date_desc", label: "Datum (neueste zuerst)" },
+  { value: "date_asc", label: "Datum (älteste zuerst)" },
+  { value: "duration_desc", label: "Dauer (längste zuerst)" },
+  { value: "duration_asc", label: "Dauer (kürzeste zuerst)" },
+  { value: "name_asc", label: "Name (A-Z)" },
+  { value: "name_desc", label: "Name (Z-A)" },
+];
+
+// Wandelt die vom Backend als str(timedelta) gelieferte Dauer ("H:MM:SS",
+// bei sehr langen Aufnahmen ggf. mit "X days, "-Präfix) in Sekunden um, für
+// die Dauer-Sortierung. Ein leerer/unparsbarer Wert wird als 0 behandelt
+// (landet beim Sortieren nach Dauer am Anfang bzw. Ende, statt einen Fehler
+// zu werfen).
+function parseDurationToSeconds(value) {
+  if (!value) return 0;
+  const str = String(value).trim();
+  const dayMatch = str.match(/^(\d+)\s+days?,\s*(.*)$/);
+  let days = 0;
+  let rest = str;
+  if (dayMatch) {
+    days = parseInt(dayMatch[1], 10) || 0;
+    rest = dayMatch[2];
+  }
+  const parts = rest.split(":").map((p) => parseFloat(p));
+  let seconds = 0;
+  if (parts.length === 3 && parts.every((p) => !Number.isNaN(p))) {
+    seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+  } else if (parts.length === 2 && parts.every((p) => !Number.isNaN(p))) {
+    seconds = parts[0] * 60 + parts[1];
+  } else if (parts.length === 1 && !Number.isNaN(parts[0])) {
+    seconds = parts[0];
+  }
+  return days * 86400 + seconds;
+}
+
+// Gemeinsamer Vergleicher für Anrufe UND Anrufbeantworter-Nachrichten (beide
+// haben passende date/duration/name-Felder, siehe sensor.py:_call_to_dict/
+// _message_to_dict) - eine Instanz reicht für beide Listen.
+function compareEntriesBySort(a, b, sortBy) {
+  switch (sortBy) {
+    case "date_asc":
+      return String(a.date || "").localeCompare(String(b.date || ""));
+    case "duration_desc":
+      return parseDurationToSeconds(b.duration) - parseDurationToSeconds(a.duration);
+    case "duration_asc":
+      return parseDurationToSeconds(a.duration) - parseDurationToSeconds(b.duration);
+    case "name_asc":
+      return String(a.name || a.number || "").localeCompare(String(b.name || b.number || ""), "de");
+    case "name_desc":
+      return String(b.name || b.number || "").localeCompare(String(a.name || a.number || ""), "de");
+    case "date_desc":
+    default:
+      return String(b.date || "").localeCompare(String(a.date || ""));
+  }
+}
 
 const LIVE_STATE_LABELS = {
   ringing: "Klingelt",
@@ -331,6 +419,12 @@ const CONFIG_DEFAULTS = {
   show_processing_eingehend: false,
   show_processing_ausgehend: false,
   show_processing_verpasst: false,
+  // Filter-/Sortierleiste (seit v1.0.4b3) - standardmäßig aus, aus demselben
+  // Grund wie show_processing_*: bestehende Dashboards sollen nach einem
+  // Update optisch unverändert bleiben. Bewusst nur der SICHTBARE Regler;
+  // solange dieser aus ist, bleibt auch die Reihenfolge/Filterung exakt wie
+  // zuvor (siehe FritzboxAnrufeCard._visibleCalls()).
+  show_filter_bar: false,
   // Farben (seit v1.0.4) - leer = bisheriger, fester Theme-Farbwert (siehe
   // COLOR_CONFIG_KEYS oben für die jeweiligen Standardwerte).
   color_tab_active: "",
@@ -621,6 +715,12 @@ class FritzboxAnrufeCard extends HTMLElement {
     super();
     this.attachShadow({ mode: "open" });
     this._activeFilter = FILTER_ALL;
+    // Filter-/Sortierleiste (seit v1.0.4b3, siehe Moduldoku oben) - reines
+    // UI-Laufzeitstatus, nicht Teil der Kartenkonfiguration, genau wie
+    // _activeFilter oben: geht bei jedem Neuladen bzw. jeder Config-Änderung
+    // verloren (siehe setConfig()).
+    this._filterOwnNumber = "";
+    this._sortBy = DEFAULT_SORT;
     this._hass = null;
     this._config = null;
     this._objectUrls = [];
@@ -638,6 +738,8 @@ class FritzboxAnrufeCard extends HTMLElement {
     }
     this._config = withDefaults(config);
     this._activeFilter = this._defaultFilter();
+    this._filterOwnNumber = "";
+    this._sortBy = DEFAULT_SORT;
     this._lastSignature = null;
     this._render();
   }
@@ -728,7 +830,7 @@ class FritzboxAnrufeCard extends HTMLElement {
         return s ? `${id}:${s.state}:${s.last_updated}` : `${id}:_`;
       })
       .join("|");
-    return `${statePart}|filter:${this._activeFilter}`;
+    return `${statePart}|filter:${this._activeFilter}|own:${this._filterOwnNumber}|sort:${this._sortBy}`;
   }
 
   _callsFor(callType) {
@@ -739,14 +841,47 @@ class FritzboxAnrufeCard extends HTMLElement {
     return Array.isArray(calls) ? calls : [];
   }
 
+  // Distinkte own_number-Werte über alle aktuell aktivierten Anruf-
+  // Kategorien hinweg (nicht nur die des gerade aktiven Tabs) - so bleibt
+  // die Dropdown-Liste stabil, unabhängig davon, welcher Tab gerade
+  // angezeigt wird. Nicht für Anrufbeantworter-Nachrichten: TamMessage
+  // (fritzconnection) hat kein own-number-Feld, siehe Moduldoku oben.
+  _availableOwnNumbers() {
+    const set = new Set();
+    this._enabledCallTypes().forEach((type) => {
+      this._callsFor(type).forEach((call) => {
+        if (call.own_number) set.add(call.own_number);
+      });
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "de"));
+  }
+
+  _applyOwnNumberFilter(calls) {
+    if (!this._filterOwnNumber) return calls;
+    return calls.filter((call) => call.own_number === this._filterOwnNumber);
+  }
+
+  _sortEntries(entries) {
+    return entries.slice().sort((a, b) => compareEntriesBySort(a, b, this._sortBy));
+  }
+
   _visibleCalls() {
     const maxRows = Number(this._config.max_rows) || 10;
+    let calls;
     if (this._activeFilter === FILTER_ALL) {
-      const combined = this._enabledCallTypes().flatMap((type) => this._callsFor(type));
-      combined.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
-      return combined.slice(0, maxRows);
+      calls = this._enabledCallTypes().flatMap((type) => this._callsFor(type));
+      calls.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+    } else {
+      calls = this._callsFor(this._activeFilter).slice();
     }
-    return this._callsFor(this._activeFilter).slice(0, maxRows);
+    // show_filter_bar aus (Standard): Reihenfolge/Filterung bleibt exakt wie
+    // vor v1.0.4b3 - die Sortier-/Eigene-Nummer-Logik unten wird dann gar
+    // nicht erst erreicht, siehe Moduldoku oben.
+    if (this._config.show_filter_bar) {
+      calls = this._applyOwnNumberFilter(calls);
+      calls = this._sortEntries(calls);
+    }
+    return calls.slice(0, maxRows);
   }
 
   _voicemails() {
@@ -913,7 +1048,59 @@ class FritzboxAnrufeCard extends HTMLElement {
 
   _renderVoicemailRows() {
     const maxRows = Number(this._config.max_rows) || 10;
-    return renderVoicemailRows(this._voicemails(), { maxRows });
+    let messages = this._voicemails();
+    // Kein own_number-Filter hier (siehe _availableOwnNumbers()) - nur die
+    // Sortierung gilt auch für Anrufbeantworter-Nachrichten. Ansonsten
+    // dieselbe "unverändert, solange show_filter_bar aus ist"-Regel wie in
+    // _visibleCalls().
+    if (this._config.show_filter_bar) {
+      messages = this._sortEntries(messages);
+    }
+    return renderVoicemailRows(messages, { maxRows });
+  }
+
+  // Filter-/Sortierleiste (seit v1.0.4b3) - siehe Moduldoku oben. Eigene
+  // Rufnummer nur für die Anrufliste (nicht Anrufbeantworter, siehe
+  // _availableOwnNumbers()); Sortierung gilt auf jedem Tab.
+  _renderFilterBar() {
+    if (!this._config.show_filter_bar) return "";
+    const isVoicemail = this._activeFilter === FILTER_VOICEMAIL;
+    const ownNumbers = isVoicemail ? [] : this._availableOwnNumbers();
+    return `
+      <div class="filter-bar">
+        ${
+          isVoicemail
+            ? ""
+            : `<label class="filter-bar-field">
+                 <span class="filter-bar-label">Eigene Rufnummer</span>
+                 <select class="filter-own-number">
+                   <option value="" ${this._filterOwnNumber ? "" : "selected"}>Alle</option>
+                   ${ownNumbers
+                     .map(
+                       (num) => `
+                     <option value="${escapeHtml(num)}" ${this._filterOwnNumber === num ? "selected" : ""}>
+                       ${escapeHtml(num)}
+                     </option>
+                   `
+                     )
+                     .join("")}
+                 </select>
+               </label>`
+        }
+        <label class="filter-bar-field">
+          <span class="filter-bar-label">Sortierung</span>
+          <select class="filter-sort-by">
+            ${SORT_OPTIONS.map(
+              (opt) => `
+              <option value="${opt.value}" ${this._sortBy === opt.value ? "selected" : ""}>
+                ${escapeHtml(opt.label)}
+              </option>
+            `
+            ).join("")}
+          </select>
+        </label>
+      </div>
+    `;
   }
 
   _revokeObjectUrls() {
@@ -941,6 +1128,7 @@ class FritzboxAnrufeCard extends HTMLElement {
         <div class="card-content">
           ${this._renderLiveBanner()}
           ${this._renderTabs()}
+          ${this._renderFilterBar()}
           ${this._renderMainContent()}
         </div>
       </ha-card>
@@ -953,6 +1141,24 @@ class FritzboxAnrufeCard extends HTMLElement {
         this._render();
       });
     });
+
+    const ownNumberSelect = this.shadowRoot.querySelector(".filter-own-number");
+    if (ownNumberSelect) {
+      ownNumberSelect.addEventListener("change", () => {
+        this._filterOwnNumber = ownNumberSelect.value;
+        this._lastSignature = this._computeSignature();
+        this._render();
+      });
+    }
+
+    const sortSelect = this.shadowRoot.querySelector(".filter-sort-by");
+    if (sortSelect) {
+      sortSelect.addEventListener("change", () => {
+        this._sortBy = sortSelect.value;
+        this._lastSignature = this._computeSignature();
+        this._render();
+      });
+    }
 
     this.shadowRoot.querySelectorAll(".voicemail-play-btn").forEach((btn) => {
       btn.addEventListener("click", () =>
@@ -1064,6 +1270,35 @@ class FritzboxAnrufeCard extends HTMLElement {
         text-overflow: ellipsis;
       }
 
+      /* Filter-/Sortierleiste (seit v1.0.4b3, nur bei show_filter_bar) */
+      .filter-bar {
+        display: flex;
+        flex-wrap: wrap;
+        column-gap: 16px;
+        row-gap: 6px;
+        align-items: center;
+        padding: 4px 0 10px;
+        margin-bottom: 4px;
+        border-bottom: 1px solid var(--divider-color, #e0e0e0);
+      }
+      .filter-bar-field {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.8em;
+        color: var(--secondary-text-color, #727272);
+      }
+      .filter-bar-field select {
+        font: inherit;
+        font-size: 1em;
+        color: var(--primary-text-color, #212121);
+        background: var(--card-background-color, #fff);
+        border: 1px solid var(--divider-color, #e0e0e0);
+        border-radius: 6px;
+        padding: 4px 6px;
+        max-width: 160px;
+      }
+
       .rows { display: flex; flex-direction: column; }
       .row {
         display: flex;
@@ -1156,17 +1391,19 @@ const EDITOR_LABELS = {
   show_processing_eingehend: "Weiterverarbeitung bei 'Angenommen' anzeigen",
   show_processing_ausgehend: "Weiterverarbeitung bei 'Ausgehend' anzeigen",
   show_processing_verpasst: "Weiterverarbeitung bei 'Verpasst' anzeigen",
+  show_filter_bar: "Filter-/Sortierleiste auf der Karte anzeigen",
   // Farben (seit v1.0.4, seit v1.0.4b1 nicht mehr über <ha-form> gerendert)
   // sind hier absichtlich NICHT mehr gelistet - siehe COLOR_EDITOR_FIELDS
   // und FritzboxAnrufeCardEditor._buildColorSection() weiter unten.
 };
 
-// EDITOR_HELPERS/computeEditorHelper: aktuell ungenutzt (die einzigen Felder
-// mit Hilfetext waren die Farbfelder, die seit v1.0.4b1 über die eigene
-// COLOR_EDITOR_FIELDS-Sektion statt über <ha-form> laufen - siehe unten).
-// _form.computeHelper bleibt trotzdem gesetzt (siehe _renderConfig()), damit
-// künftige Felder mit Hilfetext ohne weiteren Umbau möglich sind.
-const EDITOR_HELPERS = {};
+// EDITOR_HELPERS/computeEditorHelper: kurzer Hilfetext unter einzelnen
+// Feldern, falls die laufende <ha-form>-Version computeHelper unterstützt
+// (siehe _renderConfig()) - andernfalls folgenlos ignoriert.
+const EDITOR_HELPERS = {
+  show_filter_bar:
+    "Zeigt auf der Karte eine Leiste zum Filtern nach eigener Rufnummer (nur Anrufliste, nicht Anrufbeantworter) und zum Sortieren (Datum/Dauer/Name).",
+};
 
 function computeEditorLabel(schemaItem) {
   return EDITOR_LABELS[schemaItem.name] || schemaItem.name;
@@ -1237,6 +1474,7 @@ const EDITOR_SCHEMA = [
       { name: "show_duration", selector: { boolean: {} } },
       { name: "show_date", selector: { boolean: {} } },
       { name: "show_vip", selector: { boolean: {} } },
+      { name: "show_filter_bar", selector: { boolean: {} } },
     ],
   },
   {
@@ -1348,6 +1586,13 @@ const COLOR_EDITOR_STYLES = `
     gap: 8px;
     padding: 12px 0;
     cursor: pointer;
+    /* Explicit 16px/500 instead of just inheriting the ambient font-size -
+       matches <ha-expansion-panel>'s own header text (used by the other 4
+       accordion groups) regardless of whatever smaller base font-size the
+       surrounding HA editor dialog cascades in. Left implicit, this summary
+       rendered visibly smaller than the other 4 headers - see v1.0.4b3 in
+       the module docstring. */
+    font-size: 16px;
     font-weight: 500;
     color: var(--primary-text-color, #212121);
     /* Hide the browser's own <summary> disclosure marker - we render our own
@@ -1362,13 +1607,16 @@ const COLOR_EDITOR_STYLES = `
   }
   .fba-color-editor summary::-webkit-details-marker { display: none; }
   .fba-color-editor summary::marker { display: none; }
+  /* 24px, not 20px: the standard ha-icon/MDC default size, matching the
+     leading icon and chevron <ha-form> renders for the other 4 accordion
+     groups - see v1.0.4b3 in the module docstring for why this changed. */
   .fba-color-editor summary > ha-icon:first-child {
-    --mdc-icon-size: 20px;
+    --mdc-icon-size: 24px;
     color: var(--secondary-text-color, #727272);
   }
   .fba-color-editor-chevron {
     margin-left: auto;
-    --mdc-icon-size: 20px;
+    --mdc-icon-size: 24px;
     color: var(--secondary-text-color, #727272);
     transition: transform 0.2s ease;
   }

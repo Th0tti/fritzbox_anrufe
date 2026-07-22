@@ -33,6 +33,10 @@ mitgelieferte Dashboard-Karte.
 - Mitgelieferte, interaktive Dashboard-Karte (`fritzbox-anrufe-card`) mit
   Icon-Filterleiste, Live-Banner und responsivem Layout - keine manuelle
   Lovelace-Ressource nötig.
+- Optionale Filter-/Sortierleiste direkt auf der Karte (seit Version
+  1.0.4b3, `show_filter_bar`): nach eigener Rufnummer filtern und nach
+  Datum/Dauer/Name sortieren, ohne den Editor zu öffnen - siehe
+  [Filter-/Sortierleiste](#filter-sortierleiste-seit-version-104b3-optional).
 - Grafischer Karten-Editor (Home-Assistant-Standardformular): Sensoren,
   Zeilenanzahl, einzeln zuschaltbare Kategorien (Alle/Gesamt, Angenommen,
   Ausgehend, Verpasst, Anrufbeantworter) und einzeln zuschaltbare Spalten
@@ -109,7 +113,7 @@ Home-Assistant-Releases vorausgesetzt).
 ### Über HACS (empfohlen)
 
 1. HACS → Integrationen → drei Punkte oben rechts → "Benutzerdefinierte
-   Repositories" → URL `https://github.com/Th0tti/fritzbox_anrufe`,
+   Repositories" → URL `https://github.com/Meine-smarte-Welt/fritzbox_anrufe`,
    Kategorie "Integration" hinzufügen (falls das Repository nicht bereits
    als Standard-Repository gelistet ist).
 2. "FRITZ!Box Anrufe" suchen und herunterladen.
@@ -342,6 +346,10 @@ show_processing_alle: false
 show_processing_eingehend: false
 show_processing_ausgehend: false
 show_processing_verpasst: false
+# Filter-/Sortierleiste (seit Version 1.0.4b3, optional) - standardmäßig
+# aus, damit bestehende Dashboards nach einem Update optisch unverändert
+# bleiben.
+show_filter_bar: false
 # Farben (seit Version 1.0.4, optional) - CSS-Farbwert (Hex, rgb()/rgba(),
 # hsl(), oder eine Theme-Variable wie var(--accent-color)); leer/weggelassen
 # = bisherige Standardfarbe.
@@ -394,6 +402,30 @@ auch aus der "Alle"/"Gesamt"-Sammelansicht herausgerechnet.
 **Spalten:** Sieben weitere Schalter (`show_name`, `show_number`,
 `show_own_number`, `show_device`, `show_duration`, `show_date`, `show_vip`)
 blenden einzelne Spalten der Anrufliste ein oder aus.
+
+### Filter-/Sortierleiste (seit Version 1.0.4b3, optional)
+
+Über `show_filter_bar` (Standard: `false`, damit bestehende Dashboards nach
+einem Update optisch unverändert bleiben) lässt sich eine kleine Leiste
+oberhalb der Anrufliste einblenden:
+
+- **Eigene Rufnummer:** Dropdown mit "Alle" plus einem Eintrag je Rufnummer,
+  die in den aktuell geladenen Anrufen tatsächlich als `own_number`
+  vorkommt (bei mehreren an der FRITZ!Box eingerichteten Rufnummern/MSNs,
+  z. B. um nur die Anrufe einer bestimmten Nummer zu sehen). Gilt nur für
+  die Anrufliste (Alle/Angenommen/Ausgehend/Verpasst) - **nicht** für den
+  Anrufbeantworter-Tab: die FRITZ!Box liefert für Anrufbeantworter-
+  Nachrichten keine eigene Rufnummer (fritzconnection-/TR-064-seitige
+  Einschränkung, siehe [Bekannte Einschränkungen](#bekannte-einschränkungen)),
+  das Dropdown erscheint dort deshalb gar nicht erst.
+- **Sortierung:** Dropdown mit Datum (neueste/älteste zuerst), Dauer
+  (längste/kürzeste zuerst) und Name (A-Z/Z-A) - gilt auf jedem Tab,
+  einschließlich Anrufbeantworter.
+
+Beide Auswahlen sind reiner Anzeigezustand der laufenden Karte (nicht Teil
+der gespeicherten Kartenkonfiguration) - sie setzen sich beim Neuladen der
+Seite oder nach einer Konfigurationsänderung wieder auf "Alle"/"Datum,
+neueste zuerst" zurück, genau wie der aktuell ausgewählte Tab.
 
 ### Farben (seit Version 1.0.4, optional)
 
@@ -653,9 +685,34 @@ die dortigen Maintainer den Fehler beheben.
   1.0.4b1 **nicht** mehr betroffen: er verwendet statt `ha-form` einfaches,
   browser-eigenes HTML (`<details>`, `<input type="color">`), das seit
   Langem in praktisch jedem Browser gleich funktioniert.
+- **Filter-/Sortierleiste - keine "Eigene Rufnummer" bei Anrufbeantworter-
+  Nachrichten** (seit Version 1.0.4b3): Die FRITZ!Box-TAM-Nachrichtenliste
+  (TR-064-Aktion `GetMessageList`, `fritzconnection`-Modell `TamMessage`)
+  liefert für jede Nachricht nur Anrufer, Datum, Dauer und Name - **keine**
+  eigene Rufnummer/MSN, im Gegensatz zur normalen Anrufliste
+  (`GetCallList`). Das Dropdown "Eigene Rufnummer" der Filter-/Sortierleiste
+  kann diese Information deshalb für den Anrufbeantworter-Tab grundsätzlich
+  nicht anbieten - eine FRITZ!Box/fritzconnection-seitige Einschränkung,
+  nicht etwas, das diese Integration umgehen könnte. Die Sortierung
+  (Datum/Dauer/Name) ist davon nicht betroffen und funktioniert auf jedem
+  Tab, einschließlich Anrufbeantworter.
 
 ## Versionshistorie
 
+- **1.0.4b3** (Vorabversion): Zwei weitere Nachbesserungen von Thorsten.
+  Erstens: der Editor-Akkordeon-Abschnitt "Farben" verwendete für sein
+  Chevron-Symbol und das führende Icon eine kleinere `--mdc-icon-size`
+  (20px) als die anderen vier von `<ha-form>` gerenderten Abschnitte
+  (24px, der Standardwert von `ha-icon`/MDC) - jetzt vereinheitlicht auf
+  24px, zusätzlich eine explizite Schriftgröße (16px) für die
+  Abschnitts-Überschrift, damit sie nicht mehr kleiner wirkt als die
+  anderen vier. Zweitens: eine optionale Filter-/Sortierleiste auf der
+  Karte selbst (`show_filter_bar`, standardmäßig aus) - ein Dropdown zum
+  Filtern nach eigener Rufnummer (nur Anrufliste, siehe
+  [Bekannte Einschränkungen](#bekannte-einschränkungen) zur
+  Anrufbeantworter-Ausnahme) sowie ein Dropdown zum Sortieren nach
+  Datum/Dauer/Name, siehe
+  [Filter-/Sortierleiste](#filter-sortierleiste-seit-version-104b3-optional).
 - **1.0.4b2** (Vorabversion): Zwei kleine Nachbesserungen aus Thorstens
   erstem Praxistest von 1.0.4b1 an echter Hardware (Companion App). Erstens:
   dem Akkordeon-Abschnitt "Farben" fehlte das Auf-/Zuklapp-Dreieck (Chevron),

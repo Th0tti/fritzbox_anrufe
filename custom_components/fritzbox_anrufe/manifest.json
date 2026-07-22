@@ -2,11 +2,11 @@
   "domain": "fritzbox_anrufe",
   "name": "FRITZ!Box Anrufe",
   "codeowners": [
-    "@Th0tti"
+    "@Meine-smarte-Welt"
   ],
   "config_flow": true,
-  "documentation": "https://github.com/Th0tti/fritzbox_anrufe",
-  "issue_tracker": "https://github.com/Th0tti/fritzbox_anrufe/issues",
+  "documentation": "https://github.com/Meine-smarte-Welt/fritzbox_anrufe",
+  "issue_tracker": "https://github.com/Meine-smarte-Welt/fritzbox_anrufe/issues",
   "after_dependencies": [
     "lovelace"
   ],
@@ -18,5 +18,5 @@
   "requirements": [
     "fritzconnection[qr]==1.15.1"
   ],
-  "version": "1.0.4b2"
+  "version": "1.0.4b3"
 }
